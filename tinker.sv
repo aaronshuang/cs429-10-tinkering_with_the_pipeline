@@ -105,6 +105,7 @@ module tinker_core (
     always @(posedge clk) begin
         if (reset) begin
             state <= FETCH;
+            hlt <= 1'b0;
             pc <= 64'h2000;
         end else begin
             case (state)
@@ -130,7 +131,7 @@ module tinker_core (
 
                     if (opcode == 5'h0f && imm == 12'b0) begin
                         $display("Execution Halted.");
-                        hlt = 1'b1;
+                        hlt <= 1'b1;
                         // $finish; 
                     end else if (is_branch && opcode != 5'h0d) begin 
                         // Resolve Branches (except Return, which needs memory)
