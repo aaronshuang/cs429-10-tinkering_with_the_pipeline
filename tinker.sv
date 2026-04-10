@@ -68,7 +68,7 @@ module tinker_core (
     // --- Memory MUX Routing ---
     wire [63:0] stack_addr = r31_val - 8;
     wire [63:0] mem_addr = (opcode == 5'h0c || opcode == 5'h0d) ? stack_addr : ALUOut;
-    wire [63:0] mem_wdata = (opcode == 5'h0c) ? (pc) : A; // PC is already PC+4 at this point
+    wire [63:0] mem_wdata = (opcode == 5'h0c) ? (pc) : A;
 
     wire [63:0] mem_read_data;
     memory memory (
@@ -101,7 +101,7 @@ module tinker_core (
         end
     end
 
-    // --- THE MASTER FSM CONTROLLER ---
+    // FSM Controller
     always @(posedge clk) begin
         if (reset) begin
             state <= FETCH;
@@ -110,7 +110,7 @@ module tinker_core (
         end else begin
             case (state)
                 FETCH: begin
-                    // Read instruction directly from memory array
+                    // Read instruction from memory array
                     IR <= {memory.bytes[pc+3], memory.bytes[pc+2], memory.bytes[pc+1], memory.bytes[pc]};
                     pc <= pc + 4;
                     state <= DECODE;
