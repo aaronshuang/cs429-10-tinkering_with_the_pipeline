@@ -19,7 +19,7 @@ module branch_unit (
             5'h09: begin actual_taken_next = 1; correct_target_next = pc + c_val; end 
             5'h0a: begin actual_taken_next = 1; correct_target_next = pc + imm; end 
             5'h0b: begin if (a_val != 0) begin actual_taken_next = 1; correct_target_next = c_val; end end 
-            5'h0e: begin if (a_val > b_val) begin actual_taken_next = 1; correct_target_next = c_val; end end 
+            5'h0e: begin if ($signed(a_val) > $signed(b_val)) begin actual_taken_next = 1; correct_target_next = c_val; end end 
         endcase
     end
 

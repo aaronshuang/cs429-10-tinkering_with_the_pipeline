@@ -27,8 +27,7 @@ module tinker_core (
     wire [4:0] op_A, rd_A, rs_A, rt_A; wire [11:0] imm_A; wire u_imm_A, u_fpu_A, br_A;
     instruction_decoder dec_A (.instruction(IR_A), .opcode(op_A), .rd(rd_A), .rs(rs_A), .rt(rt_A), .imm(imm_A), .use_immediate(u_imm_A), .use_fpu_instruction(u_fpu_A), .is_branch(br_A));
 
-    wire [4:0] op_B, rd_B, rs_B, rt_B; wire [11:0] imm_B;
-    wire u_imm_B, u_fpu_B, br_B;
+    wire [4:0] op_B, rd_B, rs_B, rt_B; wire [11:0] imm_B; wire u_imm_B, u_fpu_B, br_B;
     instruction_decoder dec_B (.instruction(IR_B), .opcode(op_B), .rd(rd_B), .rs(rs_B), .rt(rt_B), .imm(imm_B), .use_immediate(u_imm_B), .use_fpu_instruction(u_fpu_B), .is_branch(br_B));
 
     wire cdb1_valid, cdb2_valid;
@@ -38,6 +37,19 @@ module tinker_core (
     wire com_A_vld, com_B_vld; wire [4:0] com_A_rd, com_B_rd; wire [63:0] com_A_dat, com_B_dat; wire [5:0] com_A_tag, com_B_tag;
     wire bu_valid, bu_mispredicted, bu_taken; wire [63:0] bu_target, bu_pc; wire [5:0] bu_tag;
     
+    // -----------------------------------------------------------------------------
+    // ARCHITECTURAL SHIELD 1: Track which ROB entries actually write to registers
+    // -----------------------------------------------------------------------------
+    wire we_A = !(br_A || op_A == 5'h0c || op_A == 5'h0d || op_A == 5'h13 || op_A == 5'h0f);
+    wire we_B = !(br_B || op_B == 5'h0c || op_B == 5'h0d || op_B == 5'h13 || op_B == 5'h0f);
+    reg rob_we [0:63]; 
+    always @(posedge clk) begin
+        if (alloc_A) rob_we[rob_tag_A] <= we_A;
+        if (alloc_B) rob_we[rob_tag_B] <= we_B;
+    end
+    wire real_we_1 = com_A_vld && rob_we[com_A_tag];
+    wire real_we_2 = com_B_vld && rob_we[com_B_tag];
+
     reorder_buffer #(64) rob_unit (
         .clk(clk), .reset(reset), .sys_flush(sys_flush), .flush_target(flush_tgt),
         .alloc_A(alloc_A), .rd_A(rd_A), .alloc_B(alloc_B), .rd_B(rd_B), .tag_A(rob_tag_A), .tag_B(rob_tag_B), .full(rob_full), .empty(rob_empty), 
@@ -49,12 +61,27 @@ module tinker_core (
     );
     
     wire [63:0] rs_val_A, rt_val_A, rd_val_A, rs_val_B, rt_val_B, rd_val_B, r31_val;
-    register_file reg_file (.clk(clk), .reset(reset), .write_enable_1(com_A_vld), .data_1(com_A_dat), .rd_w1(com_A_rd), .write_enable_2(com_B_vld), .data_2(com_B_dat), .rd_w2(com_B_rd), .rd_A(rd_A), .rs_A(rs_A), .rt_A(rt_A), .rd_val_A(rd_val_A), .rs_val_A(rs_val_A), .rt_val_A(rt_val_A), .rs_B(rs_B), .rt_B(rt_B), .rs_val_B(rs_val_B), .rt_val_B(rt_val_B), .r31_val(r31_val));
+    register_file reg_file (
+        .clk(clk), .reset(reset), 
+        .write_enable_1(real_we_1), .data_1(com_A_dat), .rd_w1(com_A_rd), 
+        .write_enable_2(real_we_2), .data_2(com_B_dat), .rd_w2(com_B_rd), 
+        .rd_A(rd_A), .rs_A(rs_A), .rt_A(rt_A), .rd_val_A(rd_val_A), .rs_val_A(rs_val_A), .rt_val_A(rt_val_A), 
+        .rs_B(rs_B), .rt_B(rt_B), .rs_val_B(rs_val_B), .rt_val_B(rt_val_B), .r31_val(r31_val)
+    );
     
     wire rs_val_A_rat, rt_val_A_rat, rd_val_A_rat, rs_val_B_rat, rt_val_B_rat, rd_val_B_rat;
     wire [5:0] rs_tag_A, rt_tag_A, rd_tag_A, rs_tag_B, rt_tag_B, rd_tag_B;
     
-    rat_superscalar rat_unit (.clk(clk), .reset(reset), .flush(sys_flush), .rs_A(rs_A), .rt_A(rt_A), .rd_A(rd_A), .val_rs_A(rs_val_A_rat), .val_rt_A(rt_val_A_rat), .val_rd_A(rd_val_A_rat), .tag_rs_A(rs_tag_A), .tag_rt_A(rt_tag_A), .tag_rd_A(rd_tag_A), .alloc_A(alloc_A), .alloc_tag_A(rob_tag_A), .rs_B(rs_B), .rt_B(rt_B), .rd_B(rd_B), .val_rs_B(rs_val_B_rat), .val_rt_B(rt_val_B_rat), .val_rd_B(rd_val_B_rat), .tag_rs_B(rs_tag_B), .tag_rt_B(rt_tag_B), .tag_rd_B(rd_tag_B), .alloc_B(alloc_B), .alloc_tag_B(rob_tag_B), .commit_A_valid(com_A_vld), .commit_A_tag(com_A_tag), .commit_A_rd(com_A_rd), .commit_B_valid(com_B_vld), .commit_B_tag(com_B_tag), .commit_B_rd(com_B_rd));
+    // RAT allocation mapped directly to the Write Enable flag
+    rat_superscalar rat_unit (
+        .clk(clk), .reset(reset), .flush(sys_flush), 
+        .rs_A(rs_A), .rt_A(rt_A), .rd_A(rd_A), .val_rs_A(rs_val_A_rat), .val_rt_A(rt_val_A_rat), .val_rd_A(rd_val_A_rat), .tag_rs_A(rs_tag_A), .tag_rt_A(rt_tag_A), .tag_rd_A(rd_tag_A), 
+        .alloc_A(alloc_A & we_A), .alloc_tag_A(rob_tag_A), 
+        .rs_B(rs_B), .rt_B(rt_B), .rd_B(rd_B), .val_rs_B(rs_val_B_rat), .val_rt_B(rt_val_B_rat), .val_rd_B(rd_val_B_rat), .tag_rs_B(rs_tag_B), .tag_rt_B(rt_tag_B), .tag_rd_B(rd_tag_B), 
+        .alloc_B(alloc_B & we_B), .alloc_tag_B(rob_tag_B), 
+        .commit_A_valid(real_we_1), .commit_A_tag(com_A_tag), .commit_A_rd(com_A_rd), 
+        .commit_B_valid(real_we_2), .commit_B_tag(com_B_tag), .commit_B_rd(com_B_rd)
+    );
     
     wire use_rd_A = (op_A == 5'h19 || op_A == 5'h1b || op_A == 5'h05 || op_A == 5'h07 || op_A == 5'h12 || op_A == 5'h13);
     wire vj_vld_A = use_rd_A ? rd_val_A_rat : rs_val_A_rat; 
@@ -66,12 +93,11 @@ module tinker_core (
     wire [63:0] vj_dat_B = use_rd_B ? rd_val_B : rs_val_B;
     wire [5:0] qj_B = use_rd_B ? rd_tag_B : rs_tag_B;
 
-    // FIX: Add 0x1A and 0x1C (Shifts) to Zero Extension Check
-    wire zext_A = (op_A == 5'h19 || op_A == 5'h1b || op_A == 5'h1A || op_A == 5'h1C);
+    wire zext_A = (op_A == 5'h19 || op_A == 5'h1b);
     wire [63:0] imm_val_A = zext_A ? {52'b0, imm_A} : {{52{imm_A[11]}}, imm_A};
     wire vk_vld_A = u_imm_A ? 1'b1 : rt_val_A_rat; wire [63:0] vk_dat_A = u_imm_A ? imm_val_A : rt_val_A;
     
-    wire zext_B = (op_B == 5'h19 || op_B == 5'h1b || op_B == 5'h1A || op_B == 5'h1C);
+    wire zext_B = (op_B == 5'h19 || op_B == 5'h1b);
     wire [63:0] imm_val_B = zext_B ? {52'b0, imm_B} : {{52{imm_B[11]}}, imm_B};
     wire vk_vld_B = u_imm_B ? 1'b1 : rt_val_B_rat; wire [63:0] vk_dat_B = u_imm_B ? imm_val_B : rt_val_B;
     
@@ -129,17 +155,18 @@ module tinker_core (
     wire [63:0] alu1_res_final = (alu1_op == 5'h12) ? {alu1_vj[63:12], alu1_vk[11:0]} : alu1_res;
     wire [63:0] alu2_res_final = (alu2_op == 5'h12) ? {alu2_vj[63:12], alu2_vk[11:0]} : alu2_res;
 
-    // 5-Way Arbiter (CDB1)
     wire sel1_lsq = lsq_vout; wire sel1_bu  = !sel1_lsq & bu_valid;
     wire sel1_a1  = !sel1_lsq & !sel1_bu & alu1_vout; wire sel1_a2  = !sel1_lsq & !sel1_bu & !sel1_a1 & alu2_vout;
     wire sel1_fpu = !sel1_lsq & !sel1_bu & !sel1_a1 & !sel1_a2 & fpu_vout;
     
+    // -----------------------------------------------------------------------------
+    // ARCHITECTURAL SHIELD 2: Explicit Zero-Gating to eliminate X-Propagation
+    // -----------------------------------------------------------------------------
     assign cdb1_valid = sel1_lsq | sel1_bu | sel1_a1 | sel1_a2 | sel1_fpu;
-    assign cdb1_tag   = sel1_lsq ? lsq_tout  : (sel1_bu ? bu_tag  : (sel1_a1 ? alu1_tout  : (sel1_a2 ? alu2_tout  : fpu_tout)));
-    assign cdb1_rd    = sel1_lsq ? lsq_rdout : (sel1_bu ? bu_rdout_w : (sel1_a1 ? alu1_rdout : (sel1_a2 ? alu2_rdout : fpu_rdout)));
-    assign cdb1_data  = sel1_lsq ? lsq_res   : (sel1_bu ? bu_res_w   : (sel1_a1 ? alu1_res_final   : (sel1_a2 ? alu2_res_final   : fpu_res)));
+    assign cdb1_tag   = cdb1_valid ? (sel1_lsq ? lsq_tout  : (sel1_bu ? bu_tag  : (sel1_a1 ? alu1_tout  : (sel1_a2 ? alu2_tout  : fpu_tout)))) : 6'b0;
+    assign cdb1_rd    = cdb1_valid ? (sel1_lsq ? lsq_rdout : (sel1_bu ? bu_rdout_w : (sel1_a1 ? alu1_rdout : (sel1_a2 ? alu2_rdout : fpu_rdout)))) : 5'b0;
+    assign cdb1_data  = cdb1_valid ? (sel1_lsq ? lsq_res   : (sel1_bu ? bu_res_w   : (sel1_a1 ? alu1_res_final   : (sel1_a2 ? alu2_res_final   : fpu_res)))) : 64'b0;
     
-    // FIX: 5-Way Arbiter (CDB2 Fallback for LSQ included)
     wire in2_lsq  = lsq_vout & ~sel1_lsq; wire in2_bu  = bu_valid & ~sel1_bu; 
     wire in2_a1  = alu1_vout & ~sel1_a1; wire in2_a2  = alu2_vout & ~sel1_a2; wire in2_fpu = fpu_vout & ~sel1_fpu;
 
@@ -150,9 +177,9 @@ module tinker_core (
     wire sel2_fpu = !sel2_lsq & !sel2_bu & !sel2_a1 & !sel2_a2 & in2_fpu;
     
     assign cdb2_valid = sel2_lsq | sel2_bu | sel2_a1 | sel2_a2 | sel2_fpu;
-    assign cdb2_tag   = sel2_lsq ? lsq_tout  : (sel2_bu ? bu_tag  : (sel2_a1 ? alu1_tout  : (sel2_a2 ? alu2_tout  : fpu_tout)));
-    assign cdb2_rd    = sel2_lsq ? lsq_rdout : (sel2_bu ? bu_rdout_w : (sel2_a1 ? alu1_rdout : (sel2_a2 ? alu2_rdout : fpu_rdout)));
-    assign cdb2_data  = sel2_lsq ? lsq_res   : (sel2_bu ? bu_res_w   : (sel2_a1 ? alu1_res_final   : (sel2_a2 ? alu2_res_final   : fpu_res)));
+    assign cdb2_tag   = cdb2_valid ? (sel2_lsq ? lsq_tout  : (sel2_bu ? bu_tag  : (sel2_a1 ? alu1_tout  : (sel2_a2 ? alu2_tout  : fpu_tout)))) : 6'b0;
+    assign cdb2_rd    = cdb2_valid ? (sel2_lsq ? lsq_rdout : (sel2_bu ? bu_rdout_w : (sel2_a1 ? alu1_rdout : (sel2_a2 ? alu2_rdout : fpu_rdout)))) : 5'b0;
+    assign cdb2_data  = cdb2_valid ? (sel2_lsq ? lsq_res   : (sel2_bu ? bu_res_w   : (sel2_a1 ? alu1_res_final   : (sel2_a2 ? alu2_res_final   : fpu_res)))) : 64'b0;
     
     assign lsq_ack  = sel1_lsq | sel2_lsq; assign bu_ack   = sel1_bu | sel2_bu; assign alu1_ack = sel1_a1 | sel2_a1;
     assign alu2_ack = sel1_a2 | sel2_a2; assign fpu_ack  = sel1_fpu | sel2_fpu;
@@ -170,8 +197,6 @@ module tinker_core (
     wire br_uses_rd_B = (op_B == 5'h08 || op_B == 5'h09 || op_B == 5'h0b || op_B == 5'h0e);
 
     reg issued_A, issued_B;
-    
-    // FIX: Allocation Combinational Request Flags (prevents RS clobbering)
     reg nxt_bu_alloc, nxt_lsq_alloc, nxt_alu1_alloc, nxt_alu2_alloc, nxt_fpu1_alloc;
 
     always @(posedge clk) begin
@@ -208,46 +233,50 @@ module tinker_core (
                     else if (!rob_full) begin
                         if (br_A) begin
                             if (!rs_bu_busy) begin 
-                                nxt_bu_alloc = 1;
-                                alloc_A <= 1; issued_A = 1;
-                                rs4_op<=op_A; rs4_rd<=rd_A; rs4_qj<=rs_tag_A; rs4_qk<=rt_tag_A; rs4_ql<=rd_tag_A; 
-                                rs4_vj_v <= br_uses_rs_A ? rs_val_A_rat : 1'b1; 
-                                rs4_vj_d <= rs_val_A; 
-                                rs4_vk_v <= (br_uses_rt_A || op_A == 5'h0a) ? vk_vld_A : 1'b1; 
-                                rs4_vk_d <= (op_A == 5'h0a) ? {{52{imm_A[11]}}, imm_A} : vk_dat_A; 
-                                rs4_vl_v <= br_uses_rd_A ? rd_val_A_rat : 1'b1; 
-                                rs4_vl_d <= rd_val_A; 
-                                rs4_pc<=pc; rs4_pred<=pred_tgt; rs4_tag<=rob_tag_A;
+                                nxt_bu_alloc = 1; alloc_A <= 1; issued_A = 1;
+                                rs4_op<=op_A; rs4_rd<=5'b0; rs4_qj<=qj_A; rs4_qk<=rt_tag_A; rs4_ql<=rd_tag_A; 
+                                
+                                rs4_vj_v <= br_uses_rs_A ? vj_vld_A : 1'b1; rs4_vj_d <= vj_dat_A; 
+                                rs4_vk_v <= br_uses_rt_A ? rt_val_A_rat : 1'b1; rs4_vk_d <= (op_A == 5'h0a) ? {{52{imm_A[11]}}, imm_A} : rt_val_A; 
+                                rs4_vl_v <= br_uses_rd_A ? rd_val_A_rat : 1'b1; rs4_vl_d <= rd_val_A; 
+                                
+                                rs4_pc<=pc; rs4_pred <= pred_taken ? pred_tgt : (pc + 4); 
+                                rs4_tag<=rob_tag_A;
                             end
                         end else if (is_mem_A) begin
                             if (!lsq_full) begin
-                                nxt_lsq_alloc = 1;
-                                alloc_A <= 1; issued_A = 1;
+                                nxt_lsq_alloc = 1; alloc_A <= 1; issued_A = 1;
                                 lsq_is_store <= (op_A == 5'h13); 
                                 lsq_imm <= {{52{imm_A[11]}}, imm_A}; 
                                 lsq_rd <= rd_A;
-                                lsq_av_vld <= vj_vld_A;
-                                lsq_av_dat <= vj_dat_A; lsq_av_tag <= qj_A;
-                                lsq_dv_vld <= rs_val_A_rat; lsq_dv_dat <= rs_val_A; lsq_dv_tag <= rs_tag_A;
+                                
+                                // Explicitly separate LSQ Base Address (rd) and Store Data (rs) mapping
+                                if (op_A == 5'h13) begin
+                                    lsq_av_vld <= rd_val_A_rat; lsq_av_dat <= rd_val_A; lsq_av_tag <= rd_tag_A;
+                                    lsq_dv_vld <= rs_val_A_rat; lsq_dv_dat <= rs_val_A; lsq_dv_tag <= rs_tag_A;
+                                end else begin
+                                    lsq_av_vld <= rs_val_A_rat; lsq_av_dat <= rs_val_A; lsq_av_tag <= rs_tag_A;
+                                    lsq_dv_vld <= 1'b1; lsq_dv_dat <= 64'b0; lsq_dv_tag <= 6'b0;
+                                end
                                 lsq_alloc_tag <= rob_tag_A;
                             end
                         end else if (!u_fpu_A) begin
                             if (!rs_alu1_busy) begin
-                                nxt_alu1_alloc = 1;
-                                alloc_A<=1; issued_A=1;
-                                rs1_op<=op_A; rs1_rd<=rd_A; rs1_vj_v<=vj_vld_A; rs1_vj_d<=vj_dat_A; rs1_qj<=qj_A; rs1_vk_v<=vk_vld_A; rs1_vk_d<=vk_dat_A; rs1_qk<=rt_tag_A;
+                                nxt_alu1_alloc = 1; alloc_A<=1; issued_A=1;
+                                rs1_op<=op_A; rs1_rd<=rd_A; rs1_vj_v<=vj_vld_A; rs1_vj_d<=vj_dat_A; rs1_qj<=vj_vld_A ? 6'b0 : qj_A; 
+                                rs1_vk_v<=vk_vld_A; rs1_vk_d<=vk_dat_A; rs1_qk<=vk_vld_A ? 6'b0 : rt_tag_A;
                                 rs1_tag<=rob_tag_A;
                             end else if (!rs_alu2_busy) begin
-                                nxt_alu2_alloc = 1;
-                                alloc_A<=1; issued_A=1;
-                                rs2_op<=op_A; rs2_rd<=rd_A; rs2_vj_v<=vj_vld_A; rs2_vj_d<=vj_dat_A; rs2_qj<=qj_A; rs2_vk_v<=vk_vld_A; rs2_vk_d<=vk_dat_A; rs2_qk<=rt_tag_A;
+                                nxt_alu2_alloc = 1; alloc_A<=1; issued_A=1;
+                                rs2_op<=op_A; rs2_rd<=rd_A; rs2_vj_v<=vj_vld_A; rs2_vj_d<=vj_dat_A; rs2_qj<=vj_vld_A ? 6'b0 : qj_A; 
+                                rs2_vk_v<=vk_vld_A; rs2_vk_d<=vk_dat_A; rs2_qk<=vk_vld_A ? 6'b0 : rt_tag_A;
                                 rs2_tag<=rob_tag_A;
                             end
                         end else begin
                             if (!rs_fpu1_busy) begin
-                                nxt_fpu1_alloc = 1;
-                                alloc_A<=1; issued_A=1;
-                                rs3_op<=op_A; rs3_rd<=rd_A; rs3_vj_v<=vj_vld_A; rs3_vj_d<=vj_dat_A; rs3_qj<=qj_A; rs3_vk_v<=vk_vld_A; rs3_vk_d<=vk_dat_A; rs3_qk<=rt_tag_A;
+                                nxt_fpu1_alloc = 1; alloc_A<=1; issued_A=1;
+                                rs3_op<=op_A; rs3_rd<=rd_A; rs3_vj_v<=vj_vld_A; rs3_vj_d<=vj_dat_A; rs3_qj<=vj_vld_A ? 6'b0 : qj_A; 
+                                rs3_vk_v<=vk_vld_A; rs3_vk_d<=vk_dat_A; rs3_qk<=vk_vld_A ? 6'b0 : rt_tag_A;
                                 rs3_tag<=rob_tag_A;
                             end
                         end
@@ -258,38 +287,32 @@ module tinker_core (
                             end
                             else if (!pred_taken) begin
                                 if (br_B) begin
-                                    // FIX: Check nxt_bu_alloc instead of bu_alloc
                                     if (!rs_bu_busy && !nxt_bu_alloc) begin 
-                                        nxt_bu_alloc = 1;
-                                        alloc_B<=1; issued_B=1;
-                                        rs4_op<=op_B; rs4_rd<=rd_B; rs4_qj<=rs_tag_B; rs4_qk<=rt_tag_B; rs4_ql<=rd_tag_B; 
-                                        rs4_vj_v <= br_uses_rs_B ? rs_val_B_rat : 1'b1; 
-                                        rs4_vj_d <= rs_val_B; 
-                                        rs4_vk_v <= (br_uses_rt_B || op_B == 5'h0a) ? vk_vld_B : 1'b1; 
-                                        rs4_vk_d <= (op_B == 5'h0a) ? {{52{imm_B[11]}}, imm_B} : vk_dat_B; 
-                                        rs4_vl_v <= br_uses_rd_B ? rd_val_B_rat : 1'b1; 
-                                        rs4_vl_d <= rd_val_B; 
-                                        rs4_pc<=(pc+4); rs4_pred<=(pc+8); rs4_tag<=rob_tag_B;
+                                        nxt_bu_alloc = 1; alloc_B<=1; issued_B=1;
+                                        rs4_op<=op_B; rs4_rd<=5'b0; rs4_qj<=qj_B; rs4_qk<=rt_tag_B; rs4_ql<=rd_tag_B; 
+                                        rs4_vj_v <= br_uses_rs_B ? vj_vld_B : 1'b1; rs4_vj_d <= vj_dat_B; 
+                                        rs4_vk_v <= br_uses_rt_B ? rt_val_B_rat : 1'b1; rs4_vk_d <= (op_B == 5'h0a) ? {{52{imm_B[11]}}, imm_B} : rt_val_B; 
+                                        rs4_vl_v <= br_uses_rd_B ? rd_val_B_rat : 1'b1; rs4_vl_d <= rd_val_B; 
+                                        rs4_pc<=(pc+4); rs4_pred <= (pc+8); 
+                                        rs4_tag<=rob_tag_B;
                                     end
                                 end else if (!u_fpu_B) begin
-                                    // FIX: Check nxt_alu1_alloc instead of alu1_alloc
                                     if (!rs_alu1_busy && !nxt_alu1_alloc) begin 
-                                        nxt_alu1_alloc = 1; 
-                                        alloc_B<=1; issued_B=1;
-                                        rs1_op<=op_B; rs1_rd<=rd_B; rs1_vj_v<=vj_vld_B; rs1_vj_d<=vj_dat_B; rs1_qj<=qj_B; rs1_vk_v<=vk_vld_B; rs1_vk_d<=vk_dat_B; rs1_qk<=rt_tag_B;
+                                        nxt_alu1_alloc = 1; alloc_B<=1; issued_B=1;
+                                        rs1_op<=op_B; rs1_rd<=rd_B; rs1_vj_v<=vj_vld_B; rs1_vj_d<=vj_dat_B; rs1_qj<=vj_vld_B ? 6'b0 : qj_B; 
+                                        rs1_vk_v<=vk_vld_B; rs1_vk_d<=vk_dat_B; rs1_qk<=vk_vld_B ? 6'b0 : rt_tag_B;
                                         rs1_tag<=rob_tag_B;
                                     end else if (!rs_alu2_busy && !nxt_alu2_alloc) begin 
-                                        nxt_alu2_alloc = 1;
-                                        alloc_B<=1; issued_B=1;
-                                        rs2_op<=op_B; rs2_rd<=rd_B; rs2_vj_v<=vj_vld_B; rs2_vj_d<=vj_dat_B; rs2_qj<=qj_B; rs2_vk_v<=vk_vld_B; rs2_vk_d<=vk_dat_B; rs2_qk<=rt_tag_B;
+                                        nxt_alu2_alloc = 1; alloc_B<=1; issued_B=1;
+                                        rs2_op<=op_B; rs2_rd<=rd_B; rs2_vj_v<=vj_vld_B; rs2_vj_d<=vj_dat_B; rs2_qj<=vj_vld_B ? 6'b0 : qj_B; 
+                                        rs2_vk_v<=vk_vld_B; rs2_vk_d<=vk_dat_B; rs2_qk<=vk_vld_B ? 6'b0 : rt_tag_B;
                                         rs2_tag<=rob_tag_B;
                                     end
                                 end else begin
                                     if (!rs_fpu1_busy && !nxt_fpu1_alloc) begin 
-                                        nxt_fpu1_alloc = 1; 
-                                        alloc_B<=1; issued_B=1;
-                                        rs3_op<=op_B; rs3_rd<=rd_B;
-                                        rs3_vj_v<=vj_vld_B; rs3_vj_d<=vj_dat_B; rs3_qj<=qj_B; rs3_vk_v<=vk_vld_B; rs3_vk_d<=vk_dat_B; rs3_qk<=rt_tag_B;
+                                        nxt_fpu1_alloc = 1; alloc_B<=1; issued_B=1;
+                                        rs3_op<=op_B; rs3_rd<=rd_B; rs3_vj_v<=vj_vld_B; rs3_vj_d<=vj_dat_B; rs3_qj<=vj_vld_B ? 6'b0 : qj_B; 
+                                        rs3_vk_v<=vk_vld_B; rs3_vk_d<=vk_dat_B; rs3_qk<=vk_vld_B ? 6'b0 : rt_tag_B;
                                         rs3_tag<=rob_tag_B;
                                     end
                                 end
@@ -319,12 +342,8 @@ module tinker_core (
                 end
             endcase
             
-            // Assign latched combinations at the block end
-            alu1_alloc <= nxt_alu1_alloc;
-            alu2_alloc <= nxt_alu2_alloc;
-            fpu1_alloc <= nxt_fpu1_alloc;
-            lsq_alloc <= nxt_lsq_alloc;
-            bu_alloc <= nxt_bu_alloc;
+            alu1_alloc <= nxt_alu1_alloc; alu2_alloc <= nxt_alu2_alloc;
+            fpu1_alloc <= nxt_fpu1_alloc; lsq_alloc <= nxt_lsq_alloc; bu_alloc <= nxt_bu_alloc;
         end
     end
 endmodule

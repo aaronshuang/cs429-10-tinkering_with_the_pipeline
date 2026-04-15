@@ -12,12 +12,10 @@ module instruction_decoder (
     assign rt = instruction[16:12];
     assign imm = instruction[11:0];
     
-    // FIX: Re-added shift immediate flags without mutating default arithmetic ones
     assign use_immediate = (
         opcode == 5'h19 | opcode == 5'h1b | 
         opcode == 5'h05 | opcode == 5'h07 | 
-        opcode == 5'h10 | opcode == 5'h12 | opcode == 5'h13 |
-        opcode == 5'h1A | opcode == 5'h1C
+        opcode == 5'h10 | opcode == 5'h12 | opcode == 5'h13
     );
     
     assign use_fpu_instruction = (opcode >= 5'h14 && opcode <= 5'h17);
