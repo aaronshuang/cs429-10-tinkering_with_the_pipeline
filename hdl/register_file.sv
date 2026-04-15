@@ -2,10 +2,14 @@ module register_file (
     input clk,
     input reset,
     
-    // --- Single Write Port (From CDB or Memory) ---
-    input write_enable,
-    input [4:0] rd,
-    input [63:0] data,
+    // --- Dual Write Ports (From CDBs or Memory) ---
+    input write_enable_1,
+    input [4:0] rd_w1,
+    input [63:0] data_1,
+    
+    input write_enable_2,
+    input [4:0] rd_w2,
+    input [63:0] data_2,
     
     // --- Instruction A Read Ports ---
     input [4:0] rd_A, rs_A, rt_A,
@@ -39,8 +43,16 @@ module register_file (
                 registers[i] <= 64'b0;
             end
             registers[31] <= 64'd524288;
-        end else if (write_enable && rd != 0) begin
-            registers[rd] <= data;
+        end else begin
+            // Port 1 Write
+            if (write_enable_1 && rd_w1 != 0) begin
+                registers[rd_w1] <= data_1;
+            end
+            
+            // Port 2 Write (Takes priority if there's a collision on the same cycle)
+            if (write_enable_2 && rd_w2 != 0) begin
+                registers[rd_w2] <= data_2;
+            end
         end
     end
 endmodule
