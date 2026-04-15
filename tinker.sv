@@ -113,7 +113,6 @@ module tinker_core (
     reg [63:0] rs4_pc, rs4_pred;
     reg alu1_alloc, alu2_alloc, fpu1_alloc, lsq_alloc, bu_alloc;
 
-    // LSQ Mux Wires
     reg lsq_is_store; reg [4:0] lsq_rd; reg [63:0] lsq_imm;
     reg lsq_av_vld; reg [63:0] lsq_av_dat; reg [5:0] lsq_av_tag;
     reg lsq_dv_vld; reg [63:0] lsq_dv_dat; reg [5:0] lsq_dv_tag;
@@ -166,7 +165,6 @@ module tinker_core (
     // ==========================================
     // 5-WAY DUAL CDB ARBITER
     // ==========================================
-    // Priority 1
     wire sel1_lsq = lsq_vout;
     wire sel1_bu  = !sel1_lsq & bu_valid;
     wire sel1_a1  = !sel1_lsq & !sel1_bu & alu1_vout;
@@ -178,7 +176,6 @@ module tinker_core (
     assign cdb1_rd    = sel1_lsq ? lsq_rdout : (sel1_bu ? bu_rdout : (sel1_a1 ? alu1_rdout : (sel1_a2 ? alu2_rdout : fpu_rdout)));
     assign cdb1_data  = sel1_lsq ? lsq_res   : (sel1_bu ? bu_res   : (sel1_a1 ? alu1_res   : (sel1_a2 ? alu2_res   : fpu_res)));
 
-    // Priority 2
     wire in2_bu  = bu_valid & ~sel1_bu;
     wire in2_a1  = alu1_vout & ~sel1_a1;
     wire in2_a2  = alu2_vout & ~sel1_a2;
@@ -201,21 +198,26 @@ module tinker_core (
     assign fpu_ack  = sel1_fpu | sel2_fpu;
 
     // ==========================================
-    // FRONTEND FSM (SUPERSCALAR & SPECULATIVE)
+    // FRONTEND FSM 
     // ==========================================
-    wire is_mem_A = (op_A == 5'h10 || op_A == 5'h13); wire is_mem_B = (op_B == 5'h10 || op_B == 5'h13);
+    wire is_mem_A = (op_A == 5'h10 || op_A == 5'h13); 
+    wire is_mem_B = (op_B == 5'h10 || op_B == 5'h13);
 
     always @(posedge clk) begin
+        // DECLARE FLAGS AT THE TOP OF THE BLOCK TO FIX SYNTAX ERRORS
+        reg issued_A, issued_B;
+
         if (reset) begin 
             state <= FETCH; hlt <= 0; pc <= 64'h2000; 
             alloc_A <= 0; alloc_B <= 0; alu1_alloc <= 0; alu2_alloc <= 0; fpu1_alloc <= 0; lsq_alloc <= 0; bu_alloc <= 0; 
         end 
         else if (sys_flush) begin
-            state <= FETCH; pc <= bu_correct_tgt; // FLUSH AND REDIRECT!
+            state <= FETCH; pc <= bu_correct_tgt; // FLUSH AND REDIRECT
             alloc_A <= 0; alloc_B <= 0; alu1_alloc <= 0; alu2_alloc <= 0; fpu1_alloc <= 0; lsq_alloc <= 0; bu_alloc <= 0;
         end 
         else begin
             alloc_A <= 0; alloc_B <= 0; alu1_alloc <= 0; alu2_alloc <= 0; fpu1_alloc <= 0; lsq_alloc <= 0; bu_alloc <= 0;
+            issued_A = 0; issued_B = 0;
 
             case (state)
                 FETCH: begin
@@ -227,8 +229,6 @@ module tinker_core (
                 ISSUE: begin
                     if (op_A == 5'h0f) begin hlt <= 1'b1; end 
                     else if (!rob_full) begin
-                        reg issued_A;
-                        issued_A = 0;
                         
                         // --- ATTEMPT TO ISSUE INSTRUCTION A ---
                         if (br_A) begin
@@ -261,15 +261,14 @@ module tinker_core (
 
                         // --- ATTEMPT TO ISSUE INSTRUCTION B ---
                         if (issued_A && !is_mem_B && !rob_full) begin 
-                            reg issued_B;
-                            issued_B = 0;
-                            // Block B if A was predicted taken (we shouldn't fetch the fall-through)
+                            
+                            // Block B if A was predicted taken
                             if (!pred_taken) begin
                                 if (br_B) begin
                                     if (!rs_bu_busy && !bu_alloc) begin 
                                         bu_alloc<=1; alloc_B<=1; issued_B=1;
                                         rs4_op<=op_B; rs4_rd<=rd_B; rs4_vj_v<=rs_val_B_rat; rs4_vj_d<=rs_val_B; rs4_qj<=rs_tag_B; rs4_vk_v<=vk_vld_B; rs4_vk_d<=vk_dat_B; rs4_qk<=rt_tag_B;
-                                        rs4_pc<=(pc+4); rs4_pred<=(pc+8); // Assume no B prediction for now
+                                        rs4_pc<=(pc+4); rs4_pred<=(pc+8);
                                     end
                                 end else if (!u_fpu_B) begin
                                     if (!rs_alu1_busy && !alu1_alloc) begin 
@@ -287,10 +286,9 @@ module tinker_core (
                                 end
                             end
                             
-                            // Speculative Branch Routing
+                            // Route PC Speculatively
                             if (pred_taken) pc <= pred_tgt;
                             else pc <= issued_B ? (pc + 8) : (pc + 4); 
-                            
                             state <= FETCH;
                         end else if (issued_A) begin
                             pc <= pred_taken ? pred_tgt : (pc + 4); 

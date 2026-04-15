@@ -1,8 +1,8 @@
 module FPU (
-    input clk, reset,
+    input clk, reset, flush,
     input valid_in,
-    input [4:0] op_in,
-    input [63:0] a_in, b_in,
+    input [4:0] op,       // Fixed: unified to match ALU
+    input [63:0] a, b,    // Fixed: unified to match ALU
     input [5:0] tag_in,
     input [4:0] rd_in,
     output ready_in, 
@@ -61,7 +61,8 @@ module FPU (
     integer i;
 
     always @(posedge clk) begin
-        if (reset) begin
+        // FLUSH added to reset condition to wipe the pipeline on mispredicts
+        if (reset || flush) begin
             val_s1 <= 0; val_s2 <= 0; val_s3 <= 0; valid_out <= 0;
             res_out <= 64'b0; tag_out <= 0; rd_out <= 0;
         end else begin
@@ -71,26 +72,26 @@ module FPU (
             // ==========================================
             // STAGE 1: Unpack and Setup
             // ==========================================
-            val_s1 <= valid_in; op_s1 <= op_in; tag_s1 <= tag_in; rd_s1 <= rd_in;
+            val_s1 <= valid_in; op_s1 <= op; tag_s1 <= tag_in; rd_s1 <= rd_in;
 
-            stg1_sign_a <= a_in[63];
-            stg1_sign_b <= (op_in == 5'h15) ? ~b_in[63] : b_in[63]; // Invert immediately for subf
+            stg1_sign_a <= a[63];
+            stg1_sign_b <= (op == 5'h15) ? ~b[63] : b[63]; // Invert immediately for subf
 
-            stg1_eff_exp_a <= (a_in[62:52] == 0) ? 11'd1 : a_in[62:52];
-            stg1_eff_exp_b <= (b_in[62:52] == 0) ? 11'd1 : b_in[62:52];
+            stg1_eff_exp_a <= (a[62:52] == 0) ? 11'd1 : a[62:52];
+            stg1_eff_exp_b <= (b[62:52] == 0) ? 11'd1 : b[62:52];
 
-            stg1_frac_a <= { (a_in[62:52] != 0), a_in[51:0], 3'b000 };
-            stg1_frac_b <= { (b_in[62:52] != 0), b_in[51:0], 3'b000 };
+            stg1_frac_a <= { (a[62:52] != 0), a[51:0], 3'b000 };
+            stg1_frac_b <= { (b[62:52] != 0), b[51:0], 3'b000 };
             
-            stg1_m_a <= { (a_in[62:52] != 0), a_in[51:0] };
-            stg1_m_b <= { (b_in[62:52] != 0), b_in[51:0] };
+            stg1_m_a <= { (a[62:52] != 0), a[51:0] };
+            stg1_m_b <= { (b[62:52] != 0), b[51:0] };
 
-            stg1_a_is_nan <= (a_in[62:52] == 11'h7FF) && (a_in[51:0] != 0);
-            stg1_b_is_nan <= (b_in[62:52] == 11'h7FF) && (b_in[51:0] != 0);
-            stg1_a_is_inf <= (a_in[62:52] == 11'h7FF) && (a_in[51:0] == 0);
-            stg1_b_is_inf <= (b_in[62:52] == 11'h7FF) && (b_in[51:0] == 0);
-            stg1_a_is_zero <= (a_in[62:52] == 0) && (a_in[51:0] == 0);
-            stg1_b_is_zero <= (b_in[62:52] == 0) && (b_in[51:0] == 0);
+            stg1_a_is_nan <= (a[62:52] == 11'h7FF) && (a[51:0] != 0);
+            stg1_b_is_nan <= (b[62:52] == 11'h7FF) && (b[51:0] != 0);
+            stg1_a_is_inf <= (a[62:52] == 11'h7FF) && (a[51:0] == 0);
+            stg1_b_is_inf <= (b[62:52] == 11'h7FF) && (b[51:0] == 0);
+            stg1_a_is_zero <= (a[62:52] == 0) && (a[51:0] == 0);
+            stg1_b_is_zero <= (b[62:52] == 0) && (b[51:0] == 0);
 
             // ==========================================
             // STAGE 2: Align and Calculate Base Math
@@ -256,9 +257,9 @@ module FPU (
             // STAGE 4: GRS Rounding and IEEE 754 Packing
             // ==========================================
             if (val_s3) begin
-                valid_out <= 1;     // Flag that we have a result for the CDB
-                tag_out <= tag_s3;  // The OoO tracking tag
-                rd_out <= rd_s3;    // The destination register
+                valid_out <= 1;     
+                tag_out <= tag_s3;  
+                rd_out <= rd_s3;    
                 
                 if (stg3_special_case) begin
                     res_out <= stg3_special_res;
