@@ -8,7 +8,6 @@ module branch_unit (
 );
     assign ready_in = !valid_out || ack_out;
     
-    // Cleaned up sequential vs blocking assignment to resolve synthesis conflicts
     reg actual_taken_next;
     reg [63:0] correct_target_next;
 

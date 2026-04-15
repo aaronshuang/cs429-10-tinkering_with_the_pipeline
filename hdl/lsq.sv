@@ -17,7 +17,6 @@ module lsq #(parameter DEPTH = 4) (
     reg [5:0] tag [0:DEPTH-1];
     reg [1:0] head, tail; reg [2:0] count; reg waiting_cdb; 
     
-    // State delay for 1-cycle Memory Return
     reg read_pending; 
 
     assign full = (count == DEPTH);
@@ -57,6 +56,11 @@ module lsq #(parameter DEPTH = 4) (
                 a_vld[tail] <= addr_vld; a_val[tail] <= addr_val; a_tag[tail] <= addr_tag;
                 d_vld[tail] <= data_vld; d_val[tail] <= data_val; d_tag[tail] <= data_tag; tag[tail] <= alloc_tag;
             end
+            
+            // FIX: Ensure valid[head] is ONLY destroyed upon official queue Pop
+            if (pop) begin
+                valid[head] <= 0;
+            end
 
             for (i=0; i<DEPTH; i=i+1) begin
                 if (valid[i]) begin
@@ -77,11 +81,11 @@ module lsq #(parameter DEPTH = 4) (
                 read_pending <= 0;
                 cdb_valid <= 1;
                 cdb_data <= mem_rdata; cdb_tag <= tag[head]; cdb_rd <= rd[head];
-                waiting_cdb <= 1; valid[head] <= 0;
+                waiting_cdb <= 1; 
             end else if (pop_store) begin
                 cdb_valid <= 1;
                 cdb_data <= 64'b0; cdb_tag <= tag[head]; cdb_rd <= 5'b0;
-                waiting_cdb <= 1; valid[head] <= 0;
+                waiting_cdb <= 1; 
             end
         end
     end

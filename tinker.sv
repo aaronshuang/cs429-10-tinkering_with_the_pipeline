@@ -66,10 +66,13 @@ module tinker_core (
     wire [63:0] vj_dat_B = use_rd_B ? rd_val_B : rs_val_B;
     wire [5:0] qj_B = use_rd_B ? rd_tag_B : rs_tag_B;
 
-    wire [63:0] imm_val_A = ((op_A == 5'h19 || op_A == 5'h1b) ? {52'b0, imm_A} : {{52{imm_A[11]}}, imm_A});
+    // FIX: Add 0x1A and 0x1C (Shifts) to Zero Extension Check
+    wire zext_A = (op_A == 5'h19 || op_A == 5'h1b || op_A == 5'h1A || op_A == 5'h1C);
+    wire [63:0] imm_val_A = zext_A ? {52'b0, imm_A} : {{52{imm_A[11]}}, imm_A};
     wire vk_vld_A = u_imm_A ? 1'b1 : rt_val_A_rat; wire [63:0] vk_dat_A = u_imm_A ? imm_val_A : rt_val_A;
     
-    wire [63:0] imm_val_B = ((op_B == 5'h19 || op_B == 5'h1b) ? {52'b0, imm_B} : {{52{imm_B[11]}}, imm_B});
+    wire zext_B = (op_B == 5'h19 || op_B == 5'h1b || op_B == 5'h1A || op_B == 5'h1C);
+    wire [63:0] imm_val_B = zext_B ? {52'b0, imm_B} : {{52{imm_B[11]}}, imm_B};
     wire vk_vld_B = u_imm_B ? 1'b1 : rt_val_B_rat; wire [63:0] vk_dat_B = u_imm_B ? imm_val_B : rt_val_B;
     
     reg [4:0] rs1_op, rs1_rd, rs2_op, rs2_rd, rs3_op, rs3_rd, rs4_op, rs4_rd;
@@ -123,13 +126,10 @@ module tinker_core (
     wire bu_ack;
     branch_unit branch_exec (.clk(clk), .reset(reset), .flush(sys_flush), .valid_in(bu_fire_wire), .op(bu_op_out), .pc(bu_pc_out), .predicted_target(bu_pred_out), .a_val(bu_vj_out), .b_val(bu_vk_out), .c_val(bu_vl_out), .imm(bu_vk_out), .tag_in(bu_t_out), .rd_in(bu_rd_out), .ready_in(bu_ready), .valid_out(bu_valid), .mispredicted(bu_mispredicted), .correct_target(bu_target), .actual_taken(bu_taken), .branch_pc(bu_pc), .res_out(bu_res_w), .tag_out(bu_tag), .rd_out(bu_rdout_w), .ack_out(bu_ack));
     
-    // ==========================================
-    // FIX 3: MovI Intercept Logic for the CDB 
-    // ==========================================
     wire [63:0] alu1_res_final = (alu1_op == 5'h12) ? {alu1_vj[63:12], alu1_vk[11:0]} : alu1_res;
     wire [63:0] alu2_res_final = (alu2_op == 5'h12) ? {alu2_vj[63:12], alu2_vk[11:0]} : alu2_res;
 
-    // 5-Way Arbiter
+    // 5-Way Arbiter (CDB1)
     wire sel1_lsq = lsq_vout; wire sel1_bu  = !sel1_lsq & bu_valid;
     wire sel1_a1  = !sel1_lsq & !sel1_bu & alu1_vout; wire sel1_a2  = !sel1_lsq & !sel1_bu & !sel1_a1 & alu2_vout;
     wire sel1_fpu = !sel1_lsq & !sel1_bu & !sel1_a1 & !sel1_a2 & fpu_vout;
@@ -137,31 +137,30 @@ module tinker_core (
     assign cdb1_valid = sel1_lsq | sel1_bu | sel1_a1 | sel1_a2 | sel1_fpu;
     assign cdb1_tag   = sel1_lsq ? lsq_tout  : (sel1_bu ? bu_tag  : (sel1_a1 ? alu1_tout  : (sel1_a2 ? alu2_tout  : fpu_tout)));
     assign cdb1_rd    = sel1_lsq ? lsq_rdout : (sel1_bu ? bu_rdout_w : (sel1_a1 ? alu1_rdout : (sel1_a2 ? alu2_rdout : fpu_rdout)));
-    
-    // Apply Fix 3 to CDB output
     assign cdb1_data  = sel1_lsq ? lsq_res   : (sel1_bu ? bu_res_w   : (sel1_a1 ? alu1_res_final   : (sel1_a2 ? alu2_res_final   : fpu_res)));
     
-    wire in2_bu  = bu_valid & ~sel1_bu; wire in2_a1  = alu1_vout & ~sel1_a1;
-    wire in2_a2  = alu2_vout & ~sel1_a2; wire in2_fpu = fpu_vout & ~sel1_fpu;
-    wire sel2_bu  = in2_bu;
-    wire sel2_a1  = !sel2_bu & in2_a1; wire sel2_a2  = !sel2_bu & !sel2_a1 & in2_a2;
-    wire sel2_fpu = !sel2_bu & !sel2_a1 & !sel2_a2 & in2_fpu;
+    // FIX: 5-Way Arbiter (CDB2 Fallback for LSQ included)
+    wire in2_lsq  = lsq_vout & ~sel1_lsq; wire in2_bu  = bu_valid & ~sel1_bu; 
+    wire in2_a1  = alu1_vout & ~sel1_a1; wire in2_a2  = alu2_vout & ~sel1_a2; wire in2_fpu = fpu_vout & ~sel1_fpu;
+
+    wire sel2_lsq = in2_lsq;
+    wire sel2_bu  = !sel2_lsq & in2_bu;
+    wire sel2_a1  = !sel2_lsq & !sel2_bu & in2_a1; 
+    wire sel2_a2  = !sel2_lsq & !sel2_bu & !sel2_a1 & in2_a2;
+    wire sel2_fpu = !sel2_lsq & !sel2_bu & !sel2_a1 & !sel2_a2 & in2_fpu;
     
-    assign cdb2_valid = sel2_bu | sel2_a1 | sel2_a2 | sel2_fpu;
-    assign cdb2_tag   = sel2_bu ? bu_tag  : (sel2_a1 ? alu1_tout  : (sel2_a2 ? alu2_tout  : fpu_tout));
-    assign cdb2_rd    = sel2_bu ? bu_rdout_w : (sel2_a1 ? alu1_rdout : (sel2_a2 ? alu2_rdout : fpu_rdout));
+    assign cdb2_valid = sel2_lsq | sel2_bu | sel2_a1 | sel2_a2 | sel2_fpu;
+    assign cdb2_tag   = sel2_lsq ? lsq_tout  : (sel2_bu ? bu_tag  : (sel2_a1 ? alu1_tout  : (sel2_a2 ? alu2_tout  : fpu_tout)));
+    assign cdb2_rd    = sel2_lsq ? lsq_rdout : (sel2_bu ? bu_rdout_w : (sel2_a1 ? alu1_rdout : (sel2_a2 ? alu2_rdout : fpu_rdout)));
+    assign cdb2_data  = sel2_lsq ? lsq_res   : (sel2_bu ? bu_res_w   : (sel2_a1 ? alu1_res_final   : (sel2_a2 ? alu2_res_final   : fpu_res)));
     
-    // Apply Fix 3 to CDB output
-    assign cdb2_data  = sel2_bu ? bu_res_w   : (sel2_a1 ? alu1_res_final   : (sel2_a2 ? alu2_res_final   : fpu_res));
-    
-    assign lsq_ack  = sel1_lsq; assign bu_ack   = sel1_bu | sel2_bu; assign alu1_ack = sel1_a1 | sel2_a1;
+    assign lsq_ack  = sel1_lsq | sel2_lsq; assign bu_ack   = sel1_bu | sel2_bu; assign alu1_ack = sel1_a1 | sel2_a1;
     assign alu2_ack = sel1_a2 | sel2_a2; assign fpu_ack  = sel1_fpu | sel2_fpu;
     
     wire backend_empty = (!rs_alu1_busy && !rs_alu2_busy && !rs_fpu1_busy && !rs_bu_busy && !lsq_vout && !alu1_vout && !alu2_vout && !fpu_vout && !bu_valid);
     wire is_mem_A = (op_A == 5'h10 || op_A == 5'h13); wire is_mem_B = (op_B == 5'h10 || op_B == 5'h13);
     wire barrier_A = (op_A == 5'h0c || op_A == 5'h0d); wire barrier_B = (op_B == 5'h0c || op_B == 5'h0d);
 
-    // DYNAMIC BRANCH REGISTER USAGE (Fixes the Reservation Station Deadlock)
     wire br_uses_rs_A = (op_A == 5'h0b || op_A == 5'h0e);
     wire br_uses_rt_A = (op_A == 5'h0e); 
     wire br_uses_rd_A = (op_A == 5'h08 || op_A == 5'h09 || op_A == 5'h0b || op_A == 5'h0e);
@@ -170,24 +169,25 @@ module tinker_core (
     wire br_uses_rt_B = (op_B == 5'h0e); 
     wire br_uses_rd_B = (op_B == 5'h08 || op_B == 5'h09 || op_B == 5'h0b || op_B == 5'h0e);
 
-    // FIXED: Yosys Timing Issue - Variable declaration moved to module scope instead of unnamed block
     reg issued_A, issued_B;
+    
+    // FIX: Allocation Combinational Request Flags (prevents RS clobbering)
+    reg nxt_bu_alloc, nxt_lsq_alloc, nxt_alu1_alloc, nxt_alu2_alloc, nxt_fpu1_alloc;
 
     always @(posedge clk) begin
         if (reset) begin 
-            state <= FETCH;
-            hlt <= 0; pc <= 64'h2000; alloc_A <= 0; alloc_B <= 0; alu1_alloc <= 0; alu2_alloc <= 0;
+            state <= FETCH; hlt <= 0; pc <= 64'h2000; 
+            alloc_A <= 0; alloc_B <= 0; alu1_alloc <= 0; alu2_alloc <= 0;
             fpu1_alloc <= 0; lsq_alloc <= 0; bu_alloc <= 0; 
         end 
         else if (sys_flush) begin
-            state <= FETCH;
-            pc <= flush_tgt; 
+            state <= FETCH; pc <= flush_tgt; 
             alloc_A <= 0; alloc_B <= 0; alu1_alloc <= 0; alu2_alloc <= 0; fpu1_alloc <= 0;
             lsq_alloc <= 0; bu_alloc <= 0;
         end 
         else begin
-            alloc_A <= 0;
-            alloc_B <= 0; alu1_alloc <= 0; alu2_alloc <= 0; fpu1_alloc <= 0; lsq_alloc <= 0; bu_alloc <= 0;
+            alloc_A <= 0; alloc_B <= 0; 
+            nxt_alu1_alloc = 0; nxt_alu2_alloc = 0; nxt_fpu1_alloc = 0; nxt_lsq_alloc = 0; nxt_bu_alloc = 0;
             issued_A = 0; issued_B = 0;
 
             case (state)
@@ -208,32 +208,23 @@ module tinker_core (
                     else if (!rob_full) begin
                         if (br_A) begin
                             if (!rs_bu_busy) begin 
-                                bu_alloc <= 1;
+                                nxt_bu_alloc = 1;
                                 alloc_A <= 1; issued_A = 1;
                                 rs4_op<=op_A; rs4_rd<=rd_A; rs4_qj<=rs_tag_A; rs4_qk<=rt_tag_A; rs4_ql<=rd_tag_A; 
-                                
-                                // Prevent deadlock by marking unused registers as instantly valid
                                 rs4_vj_v <= br_uses_rs_A ? rs_val_A_rat : 1'b1; 
                                 rs4_vj_d <= rs_val_A; 
                                 rs4_vk_v <= (br_uses_rt_A || op_A == 5'h0a) ? vk_vld_A : 1'b1; 
-                                
-                                // FIX 2: Branch Immediate 0x0a directly routed to vk_d instead of rt
-                                rs4_vk_d <= (op_A == 5'h0a) ? {{52{imm_A[11]}}, imm_A} : vk_dat_A;
-                                
+                                rs4_vk_d <= (op_A == 5'h0a) ? {{52{imm_A[11]}}, imm_A} : vk_dat_A; 
                                 rs4_vl_v <= br_uses_rd_A ? rd_val_A_rat : 1'b1; 
                                 rs4_vl_d <= rd_val_A; 
-                                
                                 rs4_pc<=pc; rs4_pred<=pred_tgt; rs4_tag<=rob_tag_A;
                             end
                         end else if (is_mem_A) begin
                             if (!lsq_full) begin
-                                lsq_alloc <= 1;
+                                nxt_lsq_alloc = 1;
                                 alloc_A <= 1; issued_A = 1;
                                 lsq_is_store <= (op_A == 5'h13); 
-                                
-                                // FIX 1: LSQ Immediate Sign Extension
                                 lsq_imm <= {{52{imm_A[11]}}, imm_A}; 
-                                
                                 lsq_rd <= rd_A;
                                 lsq_av_vld <= vj_vld_A;
                                 lsq_av_dat <= vj_dat_A; lsq_av_tag <= qj_A;
@@ -242,19 +233,19 @@ module tinker_core (
                             end
                         end else if (!u_fpu_A) begin
                             if (!rs_alu1_busy) begin
-                                alu1_alloc<=1;
+                                nxt_alu1_alloc = 1;
                                 alloc_A<=1; issued_A=1;
                                 rs1_op<=op_A; rs1_rd<=rd_A; rs1_vj_v<=vj_vld_A; rs1_vj_d<=vj_dat_A; rs1_qj<=qj_A; rs1_vk_v<=vk_vld_A; rs1_vk_d<=vk_dat_A; rs1_qk<=rt_tag_A;
                                 rs1_tag<=rob_tag_A;
                             end else if (!rs_alu2_busy) begin
-                                alu2_alloc<=1;
+                                nxt_alu2_alloc = 1;
                                 alloc_A<=1; issued_A=1;
                                 rs2_op<=op_A; rs2_rd<=rd_A; rs2_vj_v<=vj_vld_A; rs2_vj_d<=vj_dat_A; rs2_qj<=qj_A; rs2_vk_v<=vk_vld_A; rs2_vk_d<=vk_dat_A; rs2_qk<=rt_tag_A;
                                 rs2_tag<=rob_tag_A;
                             end
                         end else begin
                             if (!rs_fpu1_busy) begin
-                                fpu1_alloc<=1;
+                                nxt_fpu1_alloc = 1;
                                 alloc_A<=1; issued_A=1;
                                 rs3_op<=op_A; rs3_rd<=rd_A; rs3_vj_v<=vj_vld_A; rs3_vj_d<=vj_dat_A; rs3_qj<=qj_A; rs3_vk_v<=vk_vld_A; rs3_vk_d<=vk_dat_A; rs3_qk<=rt_tag_A;
                                 rs3_tag<=rob_tag_A;
@@ -267,38 +258,36 @@ module tinker_core (
                             end
                             else if (!pred_taken) begin
                                 if (br_B) begin
-                                    if (!rs_bu_busy && !bu_alloc) begin 
-                                        bu_alloc<=1;
+                                    // FIX: Check nxt_bu_alloc instead of bu_alloc
+                                    if (!rs_bu_busy && !nxt_bu_alloc) begin 
+                                        nxt_bu_alloc = 1;
                                         alloc_B<=1; issued_B=1;
                                         rs4_op<=op_B; rs4_rd<=rd_B; rs4_qj<=rs_tag_B; rs4_qk<=rt_tag_B; rs4_ql<=rd_tag_B; 
-                                        
-                                        // Prevent deadlock for Instruction B
                                         rs4_vj_v <= br_uses_rs_B ? rs_val_B_rat : 1'b1; 
                                         rs4_vj_d <= rs_val_B; 
                                         rs4_vk_v <= (br_uses_rt_B || op_B == 5'h0a) ? vk_vld_B : 1'b1; 
-                                        
-                                        // FIX 2: Branch Immediate 0x0a directly routed to vk_d instead of rt
                                         rs4_vk_d <= (op_B == 5'h0a) ? {{52{imm_B[11]}}, imm_B} : vk_dat_B; 
-                                        
                                         rs4_vl_v <= br_uses_rd_B ? rd_val_B_rat : 1'b1; 
                                         rs4_vl_d <= rd_val_B; 
-                                        
                                         rs4_pc<=(pc+4); rs4_pred<=(pc+8); rs4_tag<=rob_tag_B;
                                     end
                                 end else if (!u_fpu_B) begin
-                                    if (!rs_alu1_busy && !alu1_alloc) begin 
-                                        alu1_alloc<=1; alloc_B<=1; issued_B=1;
+                                    // FIX: Check nxt_alu1_alloc instead of alu1_alloc
+                                    if (!rs_alu1_busy && !nxt_alu1_alloc) begin 
+                                        nxt_alu1_alloc = 1; 
+                                        alloc_B<=1; issued_B=1;
                                         rs1_op<=op_B; rs1_rd<=rd_B; rs1_vj_v<=vj_vld_B; rs1_vj_d<=vj_dat_B; rs1_qj<=qj_B; rs1_vk_v<=vk_vld_B; rs1_vk_d<=vk_dat_B; rs1_qk<=rt_tag_B;
                                         rs1_tag<=rob_tag_B;
-                                    end else if (!rs_alu2_busy && !alu2_alloc) begin 
-                                        alu2_alloc<=1;
+                                    end else if (!rs_alu2_busy && !nxt_alu2_alloc) begin 
+                                        nxt_alu2_alloc = 1;
                                         alloc_B<=1; issued_B=1;
                                         rs2_op<=op_B; rs2_rd<=rd_B; rs2_vj_v<=vj_vld_B; rs2_vj_d<=vj_dat_B; rs2_qj<=qj_B; rs2_vk_v<=vk_vld_B; rs2_vk_d<=vk_dat_B; rs2_qk<=rt_tag_B;
                                         rs2_tag<=rob_tag_B;
                                     end
                                 end else begin
-                                    if (!rs_fpu1_busy && !fpu1_alloc) begin 
-                                        fpu1_alloc<=1; alloc_B<=1; issued_B=1;
+                                    if (!rs_fpu1_busy && !nxt_fpu1_alloc) begin 
+                                        nxt_fpu1_alloc = 1; 
+                                        alloc_B<=1; issued_B=1;
                                         rs3_op<=op_B; rs3_rd<=rd_B;
                                         rs3_vj_v<=vj_vld_B; rs3_vj_d<=vj_dat_B; rs3_qj<=qj_B; rs3_vk_v<=vk_vld_B; rs3_vk_d<=vk_dat_B; rs3_qk<=rt_tag_B;
                                         rs3_tag<=rob_tag_B;
@@ -309,16 +298,13 @@ module tinker_core (
                             else pc <= issued_B ? (pc + 8) : (pc + 4); 
                             state <= FETCH;
                         end else if (issued_A) begin
-                            pc <= pred_taken ?
-                            pred_tgt : (pc + 4); 
+                            pc <= pred_taken ? pred_tgt : (pc + 4); 
                             state <= FETCH;
                         end
                     end
                 end
                 
-                WAIT_DRAIN: begin if (rob_empty && backend_empty) state <= EXEC_MEM;
-                end
-                
+                WAIT_DRAIN: begin if (rob_empty && backend_empty) state <= EXEC_MEM; end
                 EXEC_MEM: begin
                     if (op_A == 5'h0d) state <= EXEC_MEM_WAIT;
                     else begin
@@ -327,12 +313,18 @@ module tinker_core (
                         state <= FETCH;
                     end
                 end
-                
                 EXEC_MEM_WAIT: begin
                     pc <= m_rdata;
                     state <= FETCH;
                 end
             endcase
+            
+            // Assign latched combinations at the block end
+            alu1_alloc <= nxt_alu1_alloc;
+            alu2_alloc <= nxt_alu2_alloc;
+            fpu1_alloc <= nxt_fpu1_alloc;
+            lsq_alloc <= nxt_lsq_alloc;
+            bu_alloc <= nxt_bu_alloc;
         end
     end
 endmodule
