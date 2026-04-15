@@ -7,23 +7,34 @@ module branch_unit (
     output reg [4:0] rd_out, input ack_out
 );
     assign ready_in = !valid_out || ack_out;
+    
+    // Cleaned up sequential vs blocking assignment to resolve synthesis conflicts
+    reg actual_taken_next;
+    reg [63:0] correct_target_next;
+
+    always @(*) begin
+        actual_taken_next = 0;
+        correct_target_next = pc + 4;
+        case (op)
+            5'h08: begin actual_taken_next = 1; correct_target_next = c_val; end 
+            5'h09: begin actual_taken_next = 1; correct_target_next = pc + c_val; end 
+            5'h0a: begin actual_taken_next = 1; correct_target_next = pc + imm; end 
+            5'h0b: begin if (a_val != 0) begin actual_taken_next = 1; correct_target_next = c_val; end end 
+            5'h0e: begin if (a_val > b_val) begin actual_taken_next = 1; correct_target_next = c_val; end end 
+        endcase
+    end
+
     always @(posedge clk) begin
         if (reset || flush) valid_out <= 0;
         else begin
             if (ack_out) valid_out <= 0;
             if (valid_in && ready_in) begin
-                valid_out <= 1; tag_out <= tag_in; rd_out <= rd_in;
+                valid_out <= 1;
+                tag_out <= tag_in; rd_out <= rd_in;
                 branch_pc <= pc; res_out <= pc + 4; 
-                actual_taken = 0; correct_target = pc + 4;
-
-                case (op)
-                    5'h08: begin actual_taken = 1; correct_target = c_val; end 
-                    5'h09: begin actual_taken = 1; correct_target = pc + c_val; end 
-                    5'h0a: begin actual_taken = 1; correct_target = pc + imm; end 
-                    5'h0b: begin if (a_val != 0) begin actual_taken = 1; correct_target = c_val; end end 
-                    5'h0e: begin if (a_val > b_val) begin actual_taken = 1; correct_target = c_val; end end 
-                endcase
-                mispredicted = (correct_target != predicted_target);
+                actual_taken <= actual_taken_next;
+                correct_target <= correct_target_next;
+                mispredicted <= (correct_target_next != predicted_target);
             end
         end
     end

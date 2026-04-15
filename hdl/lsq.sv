@@ -11,11 +11,17 @@ module lsq #(parameter DEPTH = 4) (
     output reg cdb_valid, output reg [5:0] cdb_tag, output reg [4:0] cdb_rd, output reg [63:0] cdb_data, input cdb_ack
 );
     reg valid [0:DEPTH-1]; reg is_st [0:DEPTH-1]; reg [4:0] rd [0:DEPTH-1]; reg [63:0] offset [0:DEPTH-1];
-    reg a_vld [0:DEPTH-1]; reg [63:0] a_val [0:DEPTH-1]; reg [5:0] a_tag [0:DEPTH-1];
-    reg d_vld [0:DEPTH-1]; reg [63:0] d_val [0:DEPTH-1]; reg [5:0] d_tag [0:DEPTH-1]; reg [5:0] tag [0:DEPTH-1];
-    reg [1:0] head, tail; reg [2:0] count; reg waiting_cdb;
+    reg a_vld [0:DEPTH-1];
+    reg [63:0] a_val [0:DEPTH-1]; reg [5:0] a_tag [0:DEPTH-1];
+    reg d_vld [0:DEPTH-1]; reg [63:0] d_val [0:DEPTH-1]; reg [5:0] d_tag [0:DEPTH-1];
+    reg [5:0] tag [0:DEPTH-1];
+    reg [1:0] head, tail; reg [2:0] count; reg waiting_cdb; 
+    
+    // State delay for 1-cycle Memory Return
+    reg read_pending; 
 
-    assign full = (count == DEPTH); assign current_tail = tail;
+    assign full = (count == DEPTH);
+    assign current_tail = tail;
     wire head_is_st = is_st[head];
     wire head_ready = (count > 0) && a_vld[head] && (!head_is_st || d_vld[head]);
     wire [63:0] eff_addr = a_val[head] + offset[head];
@@ -24,7 +30,7 @@ module lsq #(parameter DEPTH = 4) (
     assign mem_wdata = head_ready ? d_val[head] : 64'b0;
     assign mem_read = head_ready && !head_is_st;
     assign mem_write = head_ready && head_is_st && !waiting_cdb;
-
+    
     wire push = alloc_en && !full;
     wire pop_store = head_ready && !waiting_cdb && head_is_st;
     wire pop_load = waiting_cdb && cdb_ack;
@@ -33,15 +39,21 @@ module lsq #(parameter DEPTH = 4) (
     integer i;
     always @(posedge clk) begin
         if (reset || flush) begin 
-            head <= 0; tail <= 0; count <= 0; waiting_cdb <= 0; cdb_valid <= 0;
+            head <= 0;
+            tail <= 0; count <= 0; waiting_cdb <= 0; cdb_valid <= 0; read_pending <= 0;
             for(i=0; i<DEPTH; i=i+1) valid[i] <= 0;
         end else begin
-            if (push && !pop) count <= count + 1; else if (!push && pop) count <= count - 1;
-            if (push) tail <= (tail + 1) % DEPTH; if (pop) head <= (head + 1) % DEPTH;
+            if (push && !pop) count <= count + 1;
+            else if (!push && pop) count <= count - 1;
+            
+            if (push) tail <= (tail + 1) % DEPTH;
+            if (pop) head <= (head + 1) % DEPTH;
+            
             if (cdb_ack) begin cdb_valid <= 0; waiting_cdb <= 0; end
 
             if (push) begin
-                valid[tail] <= 1; is_st[tail] <= is_store; rd[tail] <= dest_rd; offset[tail] <= imm;
+                valid[tail] <= 1;
+                is_st[tail] <= is_store; rd[tail] <= dest_rd; offset[tail] <= imm;
                 a_vld[tail] <= addr_vld; a_val[tail] <= addr_val; a_tag[tail] <= addr_tag;
                 d_vld[tail] <= data_vld; d_val[tail] <= data_val; d_tag[tail] <= data_tag; tag[tail] <= alloc_tag;
             end
@@ -59,12 +71,17 @@ module lsq #(parameter DEPTH = 4) (
                 end
             end
 
-            if (head_ready && !head_is_st && !waiting_cdb) begin
-                cdb_valid <= 1; cdb_data <= mem_rdata; cdb_tag <= tag[head]; cdb_rd <= rd[head];
+            if (head_ready && !head_is_st && !waiting_cdb && !read_pending) begin
+                read_pending <= 1; 
+            end else if (read_pending && !waiting_cdb) begin
+                read_pending <= 0;
+                cdb_valid <= 1;
+                cdb_data <= mem_rdata; cdb_tag <= tag[head]; cdb_rd <= rd[head];
                 waiting_cdb <= 1; valid[head] <= 0;
             end else if (pop_store) begin
-                cdb_valid <= 1; cdb_data <= 64'b0; cdb_tag <= tag[head]; cdb_rd <= 5'b0;
-                waiting_cdb <= 1; valid[head] <= 0; 
+                cdb_valid <= 1;
+                cdb_data <= 64'b0; cdb_tag <= tag[head]; cdb_rd <= 5'b0;
+                waiting_cdb <= 1; valid[head] <= 0;
             end
         end
     end
