@@ -19,6 +19,7 @@ module lsq #(parameter DEPTH = 4) (
     wire head_is_st = is_st[head];
     wire head_ready = (count > 0) && a_vld[head] && (!head_is_st || d_vld[head]);
     wire [63:0] eff_addr = a_val[head] + offset[head];
+    
     assign mem_addr = head_ready ? eff_addr : 64'b0;
     assign mem_wdata = head_ready ? d_val[head] : 64'b0;
     assign mem_read = head_ready && !head_is_st;
@@ -62,7 +63,6 @@ module lsq #(parameter DEPTH = 4) (
                 cdb_valid <= 1; cdb_data <= mem_rdata; cdb_tag <= tag[head]; cdb_rd <= rd[head];
                 waiting_cdb <= 1; valid[head] <= 0;
             end else if (pop_store) begin
-                // <--- FIXED: Tell the ROB the Store is successfully finished
                 cdb_valid <= 1; cdb_data <= 64'b0; cdb_tag <= tag[head]; cdb_rd <= 5'b0;
                 waiting_cdb <= 1; valid[head] <= 0; 
             end

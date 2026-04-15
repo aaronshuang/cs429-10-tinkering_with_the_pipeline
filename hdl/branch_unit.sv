@@ -1,7 +1,7 @@
 module branch_unit (
     input clk, reset, flush,
     input valid_in, input [4:0] op, input [63:0] pc, input [63:0] predicted_target,
-    input [63:0] a_val, b_val, input [63:0] imm, input [5:0] tag_in, input [4:0] rd_in,
+    input [63:0] a_val, b_val, c_val, input [63:0] imm, input [5:0] tag_in, input [4:0] rd_in,
     output ready_in, output reg valid_out, output reg mispredicted, output reg [63:0] correct_target,
     output reg actual_taken, output reg [63:0] branch_pc, output reg [63:0] res_out, output reg [5:0] tag_out,
     output reg [4:0] rd_out, input ack_out
@@ -17,12 +17,11 @@ module branch_unit (
                 actual_taken = 0; correct_target = pc + 4;
 
                 case (op)
-                    5'h08: begin actual_taken = 1; correct_target = a_val; end 
-                    5'h09: begin actual_taken = 1; correct_target = (pc - 4) + a_val; end 
-                    5'h0a: begin actual_taken = 1; correct_target = (pc - 4) + imm; end 
-                    5'h0b: begin if (a_val != 0) begin actual_taken = 1; correct_target = a_val; end end 
-                    5'h0c: begin actual_taken = 1; correct_target = a_val; end 
-                    5'h0e: begin if (a_val > b_val) begin actual_taken = 1; correct_target = a_val; end end 
+                    5'h08: begin actual_taken = 1; correct_target = c_val; end 
+                    5'h09: begin actual_taken = 1; correct_target = pc + c_val; end 
+                    5'h0a: begin actual_taken = 1; correct_target = pc + imm; end 
+                    5'h0b: begin if (a_val != 0) begin actual_taken = 1; correct_target = c_val; end end 
+                    5'h0e: begin if (a_val > b_val) begin actual_taken = 1; correct_target = c_val; end end 
                 endcase
                 mispredicted = (correct_target != predicted_target);
             end
