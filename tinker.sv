@@ -157,7 +157,7 @@ module tinker_core (
 
     ALU alu_unit_1 (.clk(clk), .reset(reset), .flush(sys_flush), .valid_in(alu1_fire), .op(alu1_op), .a(alu1_vj), .b(alu1_vk), .tag_in(alu1_t), .rd_in(alu1_rd), .ready_in(alu1_ready), .valid_out(alu1_vout), .res_out(alu1_res), .tag_out(alu1_tout), .rd_out(alu1_rdout), .ack_out(alu1_ack));
     ALU alu_unit_2 (.clk(clk), .reset(reset), .flush(sys_flush), .valid_in(alu2_fire), .op(alu2_op), .a(alu2_vj), .b(alu2_vk), .tag_in(alu2_t), .rd_in(alu2_rd), .ready_in(alu2_ready), .valid_out(alu2_vout), .res_out(alu2_res), .tag_out(alu2_tout), .rd_out(alu2_rdout), .ack_out(alu2_ack));
-    FPU fpu_unit   (.clk(clk), .reset(reset), .flush(sys_flush), .valid_in(fpu1_fire), .op(fpu1_op), .a(fpu1_vj), .b(fpu1_vk), .tag_in(fpu1_t), .rd_in(fpu1_rd), .ready_in(fpu_ready), .valid_out(fpu_vout), .res_out(fpu_res), .tag_out(fpu_tout), .rd_out(fpu_rdout), .ack_out(fpu_ack));
+    FPU fpu   (.clk(clk), .reset(reset), .flush(sys_flush), .valid_in(fpu1_fire), .op(fpu1_op), .a(fpu1_vj), .b(fpu1_vk), .tag_in(fpu1_t), .rd_in(fpu1_rd), .ready_in(fpu_ready), .valid_out(fpu_vout), .res_out(fpu_res), .tag_out(fpu_tout), .rd_out(fpu_rdout), .ack_out(fpu_ack));
     
     wire [5:0] bu_tout; wire [4:0] bu_rdout; wire [63:0] bu_res; wire bu_ack;
     branch_unit branch_exec (.clk(clk), .reset(reset), .flush(sys_flush), .valid_in(bu_fire), .op(bu_op), .pc(bu_pc_out), .predicted_target(bu_pred_out), .a_val(bu_vj), .b_val(bu_vk), .imm(bu_vk), .tag_in(bu_t), .rd_in(bu_rd), .ready_in(bu_ready), .valid_out(bu_valid), .mispredicted(bu_mispredicted), .correct_target(bu_correct_tgt), .actual_taken(bu_actual_taken), .branch_pc(bu_branch_pc), .res_out(bu_res), .tag_out(bu_tout), .rd_out(bu_rdout), .ack_out(bu_ack));
