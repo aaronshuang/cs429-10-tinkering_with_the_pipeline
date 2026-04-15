@@ -62,7 +62,9 @@ module lsq #(parameter DEPTH = 4) (
                 cdb_valid <= 1; cdb_data <= mem_rdata; cdb_tag <= tag[head]; cdb_rd <= rd[head];
                 waiting_cdb <= 1; valid[head] <= 0;
             end else if (pop_store) begin
-                valid[head] <= 0; 
+                // <--- FIXED: Tell the ROB the Store is successfully finished
+                cdb_valid <= 1; cdb_data <= 64'b0; cdb_tag <= tag[head]; cdb_rd <= 5'b0;
+                waiting_cdb <= 1; valid[head] <= 0; 
             end
         end
     end

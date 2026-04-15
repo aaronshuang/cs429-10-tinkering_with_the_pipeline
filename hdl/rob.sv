@@ -2,7 +2,7 @@ module reorder_buffer #(parameter DEPTH = 64) (
     input clk, reset, flush,
     input alloc_A, input [4:0] rd_A,
     input alloc_B, input [4:0] rd_B,
-    output wire [5:0] tag_A, tag_B, output wire full,
+    output wire [5:0] tag_A, tag_B, output wire full, output wire empty,
     input cdb1_valid, input [5:0] cdb1_tag, input [63:0] cdb1_data,
     input cdb2_valid, input [5:0] cdb2_tag, input [63:0] cdb2_data,
     output reg commit_A_valid, output reg [4:0] commit_A_rd, output reg [63:0] commit_A_data, output reg [5:0] commit_A_tag,
@@ -10,14 +10,17 @@ module reorder_buffer #(parameter DEPTH = 64) (
 );
     reg valid [0:DEPTH-1]; reg ready [0:DEPTH-1]; reg [4:0] dest_reg [0:DEPTH-1]; reg [63:0] value [0:DEPTH-1];
     reg [5:0] head, tail; reg [6:0] count;
+    
     assign full = (count >= DEPTH - 2);
-    assign tag_A = tail; assign tag_B = (tail + 1) % DEPTH;
+    assign empty = (count == 0);
+    assign tag_A = tail; 
+    assign tag_B = (tail + 1) % DEPTH;
 
+    // Fixed Yosys syntax error: Variables moved to module scope
+    reg pop_A, pop_B, push_A, push_B;
     integer i;
+
     always @(posedge clk) begin
-        // Top-of-block declarations for SystemVerilog compliance
-        reg pop_A, pop_B, push_A, push_B;
-        
         if (reset || flush) begin
             head <= 0; tail <= 0; count <= 0; commit_A_valid <= 0; commit_B_valid <= 0;
             for(i=0; i<DEPTH; i=i+1) begin valid[i] <= 0; ready[i] <= 0; end

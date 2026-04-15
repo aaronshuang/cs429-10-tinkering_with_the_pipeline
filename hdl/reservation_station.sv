@@ -1,6 +1,7 @@
-module reservation_station #(parameter TAG = 6'd1) (
+module reservation_station (
     input clk, reset, flush,
     input alloc_en, input [4:0] op_in, input [4:0] rd_in, input [63:0] pc_in, input [63:0] pred_tgt_in,
+    input [5:0] rob_tag_in, // <--- ADDED: Dynamic tag mapping
     input val_vj, input [63:0] vj_in, input [5:0] qj_in, input val_vk, input [63:0] vk_in, input [5:0] qk_in,
     input cdb1_valid, input [5:0] cdb1_tag, input [63:0] cdb1_data,
     input cdb2_valid, input [5:0] cdb2_tag, input [63:0] cdb2_data,
@@ -8,19 +9,19 @@ module reservation_station #(parameter TAG = 6'd1) (
     output wire ready_to_fire, output wire [4:0] op_out, output wire [4:0] rd_out, output wire [63:0] pc_out, output wire [63:0] pred_tgt_out,
     output wire [63:0] vj_out, vk_out, output wire [5:0] tag_out, input fire_ack, output reg busy
 );
-    reg [4:0] op; reg [4:0] rd; reg [63:0] pc; reg [63:0] pred_tgt;
+    reg [4:0] op; reg [4:0] rd; reg [63:0] pc; reg [63:0] pred_tgt; reg [5:0] rob_tag;
     reg qj_valid, qk_valid; reg [63:0] vj, vk; reg [5:0] qj, qk;
 
     assign ready_to_fire = busy & qj_valid & qk_valid;
     assign op_out = op; assign rd_out = rd; assign pc_out = pc; assign pred_tgt_out = pred_tgt;
-    assign vj_out = vj; assign vk_out = vk; assign tag_out = TAG;
+    assign vj_out = vj; assign vk_out = vk; assign tag_out = rob_tag;
 
     always @(posedge clk) begin
         if (reset || flush) busy <= 0;
         else begin
             if (fire_ack) busy <= 0;
             if (alloc_en) begin
-                busy <= 1; op <= op_in; rd <= rd_in; pc <= pc_in; pred_tgt <= pred_tgt_in;
+                busy <= 1; op <= op_in; rd <= rd_in; pc <= pc_in; pred_tgt <= pred_tgt_in; rob_tag <= rob_tag_in;
                 qj_valid <= val_vj; vj <= vj_in; qj <= qj_in; qk_valid <= val_vk; vk <= vk_in; qk <= qk_in;
             end 
             if (busy) begin
