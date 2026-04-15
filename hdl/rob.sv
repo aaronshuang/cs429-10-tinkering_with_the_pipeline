@@ -35,6 +35,10 @@ module reorder_buffer #(parameter DEPTH = 64) (
 
     integer i;
     always @(posedge clk) begin
+        reg pop_A;
+        reg pop_B;
+        reg push_A;
+        reg push_B;
         if (reset || flush) begin
             head <= 0; tail <= 0; count <= 0;
             commit_A_valid <= 0; commit_B_valid <= 0;
@@ -45,7 +49,8 @@ module reorder_buffer #(parameter DEPTH = 64) (
             // ---------------------------------------------------
             // 1. RETIRE (Commit from Head in-order)
             // ---------------------------------------------------
-            reg pop_A = 0, pop_B = 0;
+            pop_A = 0;
+            pop_B = 0;
             commit_A_valid <= 0; commit_B_valid <= 0;
 
             if (count > 0 && ready[head]) begin
@@ -83,7 +88,9 @@ module reorder_buffer #(parameter DEPTH = 64) (
             // ---------------------------------------------------
             // 3. ISSUE (Allocate at Tail in-order)
             // ---------------------------------------------------
-            reg push_A = 0, push_B = 0;
+            push_A = 0;
+            push_B = 0;
+
             if (alloc_A && !full) begin
                 valid[tail] <= 1;
                 ready[tail] <= 0; // Not done yet!

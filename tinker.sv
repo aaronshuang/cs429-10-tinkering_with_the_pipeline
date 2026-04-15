@@ -227,7 +227,8 @@ module tinker_core (
                 ISSUE: begin
                     if (op_A == 5'h0f) begin hlt <= 1'b1; end 
                     else if (!rob_full) begin
-                        reg issued_A = 0;
+                        reg issued_A;
+                        issued_A = 0;
                         
                         // --- ATTEMPT TO ISSUE INSTRUCTION A ---
                         if (br_A) begin
@@ -260,7 +261,8 @@ module tinker_core (
 
                         // --- ATTEMPT TO ISSUE INSTRUCTION B ---
                         if (issued_A && !is_mem_B && !rob_full) begin 
-                            reg issued_B = 0;
+                            reg issued_B;
+                            issued_B = 0;
                             // Block B if A was predicted taken (we shouldn't fetch the fall-through)
                             if (!pred_taken) begin
                                 if (br_B) begin
