@@ -1,9 +1,9 @@
-module reservation_station #(parameter TAG = 6'd1) (
+module reservation_station (
     input clk, reset, flush,
     input alloc_en, input [4:0] op_in, input [4:0] rd_in, input [63:0] pc_in, input [63:0] pred_tgt_in, input [5:0] rob_tag_in, 
     input val_vj, input [63:0] vj_in, input [5:0] qj_in, 
     input val_vk, input [63:0] vk_in, input [5:0] qk_in,
-    input val_vl, input [63:0] vl_in, input [5:0] ql_in, // NEW 3rd OPERAND
+    input val_vl, input [63:0] vl_in, input [5:0] ql_in, // 3rd Operand
     input cdb1_valid, input [5:0] cdb1_tag, input [63:0] cdb1_data,
     input cdb2_valid, input [5:0] cdb2_tag, input [63:0] cdb2_data,
 

@@ -2,8 +2,7 @@ module FPU (
     input clk, reset, flush,
     input valid_in, input [4:0] op, input [63:0] a, b,
     input [5:0] tag_in, input [4:0] rd_in,
-    output ready_in, 
-    output reg valid_out, output reg [63:0] res_out, output reg [5:0] tag_out, output reg [4:0] rd_out, input ack_out 
+    output ready_in, output reg valid_out, output reg [63:0] res_out, output reg [5:0] tag_out, output reg [4:0] rd_out, input ack_out 
 );
     assign ready_in = 1'b1; 
     
@@ -22,12 +21,12 @@ module FPU (
     reg [10:0] v_exp_diff, v_exp_res; reg [56:0] v_frac_add_res; reg [55:0] v_shift_mask; reg [106:0] v_mul_shift_mask; reg [5:0] v_shift_amt;
     reg v_G, v_R, v_S, v_LSB, v_round_up; reg signed [12:0] v_signed_exp; integer i;
 
-    always @(posedge clk) begin
-        // Top-of-block declarations for Yosys
-        reg [55:0] local_frac_a, local_frac_b;
-        reg [106:0] local_raw_mul_res;
-        reg [56:0] local_raw_div_res;
+    // Placed at module scope to fix Yosys "unnamed block" synthesis error
+    reg [55:0] local_frac_a, local_frac_b;
+    reg [106:0] local_raw_mul_res;
+    reg [56:0] local_raw_div_res;
 
+    always @(posedge clk) begin
         if (reset || flush) begin
             val_s1 <= 0; val_s2 <= 0; val_s3 <= 0; valid_out <= 0; res_out <= 64'b0; tag_out <= 0; rd_out <= 0;
         end else begin
