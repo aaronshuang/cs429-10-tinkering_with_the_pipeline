@@ -1,266 +1,324 @@
 module FPU (
-    input [63:0] a, b,
-    input [4:0] op,
-    output reg [63:0] res
+    input clk, reset,
+    input valid_in,
+    input [4:0] op_in,
+    input [63:0] a_in, b_in,
+    input [5:0] tag_in,
+    input [4:0] rd_in,
+    output ready_in, 
+
+    output reg valid_out,
+    output reg [63:0] res_out,
+    output reg [5:0] tag_out,
+    output reg [4:0] rd_out,
+    input ack_out 
 );
+    // Fully pipelined, always ready to accept new instructions
+    assign ready_in = 1'b1; 
 
-    reg sign_a, sign_b, sign_res;
-    reg [10:0] exp_a, exp_b, exp_res;
-    reg [10:0] eff_exp_a, eff_exp_b; 
+    // --- STAGE 1 to 2 REGISTERS ---
+    reg val_s1; reg [4:0] op_s1; reg [5:0] tag_s1; reg [4:0] rd_s1;
+    reg stg1_sign_a, stg1_sign_b;
+    reg [10:0] stg1_eff_exp_a, stg1_eff_exp_b;
+    reg [55:0] stg1_frac_a, stg1_frac_b;
+    reg [52:0] stg1_m_a, stg1_m_b;
+    reg stg1_a_is_nan, stg1_b_is_nan, stg1_a_is_inf, stg1_b_is_inf, stg1_a_is_zero, stg1_b_is_zero;
 
-    reg [55:0] frac_a, frac_b; 
-    reg [56:0] frac_add_res; 
+    // --- STAGE 2 to 3 REGISTERS ---
+    reg val_s2; reg [4:0] op_s2; reg [5:0] tag_s2; reg [4:0] rd_s2;
+    reg stg2_sign_res;
+    reg [10:0] stg2_exp_res;
+    reg [56:0] stg2_frac_add_res;
+    reg signed [12:0] stg2_signed_exp;
+    reg [106:0] stg2_raw_mul_res;
+    reg [56:0] stg2_raw_div_res;
+    reg stg2_special_case;
+    reg [63:0] stg2_special_res;
+    reg [52:0] stg2_m_b;
+    reg [107:0] stg2_div_num;
 
-    reg [52:0] m_a, m_b; 
-    reg signed [12:0] signed_exp; 
-    reg [106:0] raw_mul_res; 
-    reg [107:0] div_num; 
-    reg [56:0] raw_div_res; 
+    // --- STAGE 3 to 4 REGISTERS ---
+    reg val_s3; reg [4:0] op_s3; reg [5:0] tag_s3; reg [4:0] rd_s3;
+    reg stg3_sign_res;
+    reg [10:0] stg3_exp_res;
+    reg [56:0] stg3_frac_add_res;
+    reg signed [12:0] stg3_signed_exp;
+    reg [106:0] stg3_raw_mul_res;
+    reg [56:0] stg3_raw_div_res;
+    reg stg3_special_case;
+    reg [63:0] stg3_special_res;
+    reg [52:0] stg3_m_b;
+    reg [107:0] stg3_div_num;
 
-    reg [10:0] exp_diff;
+    // --- Combinational Temporaries ---
+    reg [10:0] v_exp_diff, v_exp_res;
+    reg [56:0] v_frac_add_res;
+    reg [55:0] v_shift_mask;
+    reg [106:0] v_mul_shift_mask;
+    reg [5:0] v_shift_amt;
+    reg v_G, v_R, v_S, v_LSB, v_round_up;
+    reg signed [12:0] v_signed_exp;
     integer i;
-    reg [5:0] shift_amt;
-    reg [55:0] shift_mask;
-    reg [106:0] mul_shift_mask; // Extended mask for FMUL
 
-    reg G, R, S, LSB;
-    reg round_up;
+    always @(posedge clk) begin
+        if (reset) begin
+            val_s1 <= 0; val_s2 <= 0; val_s3 <= 0; valid_out <= 0;
+            res_out <= 64'b0; tag_out <= 0; rd_out <= 0;
+        end else begin
+            // Free the output register if the CDB accepted the data
+            if (ack_out) valid_out <= 0;
 
-    // Special codes for IEEE 754 Edge Cases
-    reg a_is_nan, b_is_nan, a_is_inf, b_is_inf, a_is_zero, b_is_zero;
+            // ==========================================
+            // STAGE 1: Unpack and Setup
+            // ==========================================
+            val_s1 <= valid_in; op_s1 <= op_in; tag_s1 <= tag_in; rd_s1 <= rd_in;
 
-    always @(*) begin
-        res = 64'b0;
+            stg1_sign_a <= a_in[63];
+            stg1_sign_b <= (op_in == 5'h15) ? ~b_in[63] : b_in[63]; // Invert immediately for subf
 
-        sign_a = a[63];
-        sign_b = b[63];
+            stg1_eff_exp_a <= (a_in[62:52] == 0) ? 11'd1 : a_in[62:52];
+            stg1_eff_exp_b <= (b_in[62:52] == 0) ? 11'd1 : b_in[62:52];
 
-        exp_a = a[62:52];
-        exp_b = b[62:52];
-        eff_exp_a = (exp_a == 0) ? 11'd1 : exp_a;
-        eff_exp_b = (exp_b == 0) ? 11'd1 : exp_b;
+            stg1_frac_a <= { (a_in[62:52] != 0), a_in[51:0], 3'b000 };
+            stg1_frac_b <= { (b_in[62:52] != 0), b_in[51:0], 3'b000 };
+            
+            stg1_m_a <= { (a_in[62:52] != 0), a_in[51:0] };
+            stg1_m_b <= { (b_in[62:52] != 0), b_in[51:0] };
 
-        frac_a = { (exp_a != 0), a[51:0], 3'b000 };
-        frac_b = { (exp_b != 0), b[51:0], 3'b000 };
+            stg1_a_is_nan <= (a_in[62:52] == 11'h7FF) && (a_in[51:0] != 0);
+            stg1_b_is_nan <= (b_in[62:52] == 11'h7FF) && (b_in[51:0] != 0);
+            stg1_a_is_inf <= (a_in[62:52] == 11'h7FF) && (a_in[51:0] == 0);
+            stg1_b_is_inf <= (b_in[62:52] == 11'h7FF) && (b_in[51:0] == 0);
+            stg1_a_is_zero <= (a_in[62:52] == 0) && (a_in[51:0] == 0);
+            stg1_b_is_zero <= (b_in[62:52] == 0) && (b_in[51:0] == 0);
 
-        a_is_nan = (exp_a == 11'h7FF) && (a[51:0] != 0);
-        b_is_nan = (exp_b == 11'h7FF) && (b[51:0] != 0);
-        a_is_inf = (exp_a == 11'h7FF) && (a[51:0] == 0);
-        b_is_inf = (exp_b == 11'h7FF) && (b[51:0] == 0);
-        a_is_zero = (exp_a == 0) && (a[51:0] == 0);
-        b_is_zero = (exp_b == 0) && (b[51:0] == 0);
-
-        case (op)
-            5'h14, 5'h15: begin // addf / subf (No changes needed here, it passes!)
-                if (op == 5'h15) sign_b = ~sign_b;
-
-                if (eff_exp_a > eff_exp_b) begin
-                    exp_diff = eff_exp_a - eff_exp_b;
-                    exp_res  = eff_exp_a;
-                    if (exp_diff > 55) begin
-                        frac_b = {55'b0, |frac_b};
-                    end else begin
-                        shift_mask = (56'd1 << exp_diff) - 56'd1;
-                        frac_b = (frac_b >> exp_diff) | {55'b0, |(frac_b & shift_mask)};
+            // ==========================================
+            // STAGE 2: Align and Calculate Base Math
+            // ==========================================
+            val_s2 <= val_s1; op_s2 <= op_s1; tag_s2 <= tag_s1; rd_s2 <= rd_s1;
+            stg2_special_case <= 0;
+            stg2_special_res <= 0;
+            stg2_m_b <= stg1_m_b;
+            
+            if (op_s1 == 5'h14 || op_s1 == 5'h15) begin // addf / subf
+                reg [55:0] local_frac_a, local_frac_b;
+                local_frac_a = stg1_frac_a;
+                local_frac_b = stg1_frac_b;
+                v_exp_res = stg1_eff_exp_a;
+                
+                if (stg1_eff_exp_a > stg1_eff_exp_b) begin
+                    v_exp_diff = stg1_eff_exp_a - stg1_eff_exp_b;
+                    v_exp_res  = stg1_eff_exp_a;
+                    if (v_exp_diff > 55) local_frac_b = {55'b0, |local_frac_b};
+                    else begin
+                        v_shift_mask = (56'd1 << v_exp_diff) - 56'd1;
+                        local_frac_b = (local_frac_b >> v_exp_diff) | {55'b0, |(local_frac_b & v_shift_mask)};
                     end
-                end else if (eff_exp_b > eff_exp_a) begin
-                    exp_diff = eff_exp_b - eff_exp_a;
-                    exp_res  = eff_exp_b;
-                    if (exp_diff > 55) begin
-                        frac_a = {55'b0, |frac_a};
-                    end else begin
-                        shift_mask = (56'd1 << exp_diff) - 56'd1;
-                        frac_a = (frac_a >> exp_diff) | {55'b0, |(frac_a & shift_mask)};
-                    end
-                end else begin
-                    exp_res = eff_exp_a;
-                end
-
-                if (sign_a == sign_b) begin
-                    frac_add_res = frac_a + frac_b;
-                    sign_res  = sign_a;
-                end else begin
-                    if (frac_a >= frac_b) begin
-                        frac_add_res = frac_a - frac_b;
-                        sign_res  = sign_a;
-                    end else begin
-                        frac_add_res = frac_b - frac_a;
-                        sign_res  = sign_b;
+                end else if (stg1_eff_exp_b > stg1_eff_exp_a) begin
+                    v_exp_diff = stg1_eff_exp_b - stg1_eff_exp_a;
+                    v_exp_res  = stg1_eff_exp_b;
+                    if (v_exp_diff > 55) local_frac_a = {55'b0, |local_frac_a};
+                    else begin
+                        v_shift_mask = (56'd1 << v_exp_diff) - 56'd1;
+                        local_frac_a = (local_frac_a >> v_exp_diff) | {55'b0, |(local_frac_a & v_shift_mask)};
                     end
                 end
                 
-                if (frac_add_res == 0) begin
-                    res = 64'b0; 
+                if (stg1_sign_a == stg1_sign_b) begin
+                    stg2_frac_add_res <= local_frac_a + local_frac_b;
+                    stg2_sign_res <= stg1_sign_a;
                 end else begin
-                    if (frac_add_res[56]) begin 
-                        frac_add_res = (frac_add_res >> 1) | {56'b0, frac_add_res[0]};
-                        exp_res = exp_res + 1;
+                    if (local_frac_a >= local_frac_b) begin
+                        stg2_frac_add_res <= local_frac_a - local_frac_b;
+                        stg2_sign_res <= stg1_sign_a;
                     end else begin
-                        shift_amt = 0;
-                        for (i = 55; i >= 0; i = i - 1) begin
-                            if (frac_add_res[55] == 0 && exp_res > 0) begin
-                                frac_add_res = frac_add_res << 1;
-                                exp_res = exp_res - 1;
-                            end
-                        end
+                        stg2_frac_add_res <= local_frac_b - local_frac_a;
+                        stg2_sign_res <= stg1_sign_b;
                     end
-
-                    if (exp_res == 0 && frac_add_res[55] == 1) begin
-                        exp_res = 0; 
-                    end
-
-                    LSB = frac_add_res[3]; 
-                    G = frac_add_res[2];
-                    R = frac_add_res[1];
-                    S = frac_add_res[0];
-                    round_up = G & (R | S | LSB);
-                    
-                    if (round_up) begin
-                        frac_add_res = frac_add_res + 4'b1000;
-                        if (frac_add_res[56]) begin
-                            frac_add_res = frac_add_res >> 1;
-                            exp_res = exp_res + 1;
-                        end
-                    end
-
-                    res = {sign_res, exp_res, frac_add_res[54:3]};
                 end
+                stg2_exp_res <= v_exp_res;
             end
-            
-            5'h16: begin // mulf
-                sign_res = sign_a ^ sign_b;
-                m_a = { (exp_a != 0), a[51:0] };
-                m_b = { (exp_b != 0), b[51:0] };
-
-                if (a_is_nan || b_is_nan) begin
-                    res = {1'b0, 11'h7FF, 52'h8000000000000}; // NaN
-                end else if ((a_is_inf && b_is_zero) || (a_is_zero && b_is_inf)) begin
-                    res = {1'b0, 11'h7FF, 52'h8000000000000}; // Inf * 0 = NaN
-                end else if (a_is_inf || b_is_inf) begin
-                    res = {sign_res, 11'h7FF, 52'b0}; // Inf
-                end else if (a_is_zero || b_is_zero) begin
-                    res = {sign_res, 63'b0}; // Zero
+            else if (op_s1 == 5'h16) begin // Mulf
+                stg2_sign_res <= stg1_sign_a ^ stg1_sign_b;
+                if (stg1_a_is_nan || stg1_b_is_nan || (stg1_a_is_inf && stg1_b_is_zero) || (stg1_a_is_zero && stg1_b_is_inf)) begin
+                    stg2_special_case <= 1; stg2_special_res <= {1'b0, 11'h7FF, 52'h8000000000000};
+                end else if (stg1_a_is_inf || stg1_b_is_inf) begin
+                    stg2_special_case <= 1; stg2_special_res <= {stg1_sign_a ^ stg1_sign_b, 11'h7FF, 52'b0};
+                end else if (stg1_a_is_zero || stg1_b_is_zero) begin
+                    stg2_special_case <= 1; stg2_special_res <= {stg1_sign_a ^ stg1_sign_b, 63'b0};
                 end else begin
-                    // Base alignment: implicit 1 is natively at bit 104, +1 ensures bit 105 format.
-                    signed_exp = eff_exp_a + eff_exp_b - 1023 + 1; 
-                    raw_mul_res = m_a * m_b;
-                    
-                    if (raw_mul_res != 0) begin
-                        for (i = 105; i >= 0; i = i - 1) begin
-                            // Stop shifting if exponent drops to 1 (minimum normal value)
-                            if (raw_mul_res[105] == 0 && signed_exp > 1) begin
-                                raw_mul_res = raw_mul_res << 1;
-                                signed_exp = signed_exp - 1;
-                            end
-                        end
-                        
-                        // Subnormal Denormalization
-                        if (signed_exp < 1) begin
-                            shift_amt = 1 - signed_exp;
-                            if (shift_amt > 106) begin
-                                raw_mul_res = 0;
-                            end else begin
-                                mul_shift_mask = (107'd1 << shift_amt) - 1;
-                                S = |(raw_mul_res & mul_shift_mask);
-                                raw_mul_res = (raw_mul_res >> shift_amt) | {106'b0, S};
-                            end
-                            signed_exp = 0;
-                        end else if (raw_mul_res[105] == 0) begin
-                            signed_exp = 0; // Exactly matched subnormal format
-                        end
-                    end
-
-                    // GRS rounding
-                    LSB = raw_mul_res[53];
-                    G = raw_mul_res[52];
-                    R = raw_mul_res[51];
-                    S = |raw_mul_res[50:0];
-                    round_up = G & (R | S | LSB);
-
-                    if (round_up) begin
-                        raw_mul_res = raw_mul_res + (107'b1 << 53);
-                        if (raw_mul_res[106]) begin 
-                            raw_mul_res = raw_mul_res >> 1;
-                            signed_exp = signed_exp + 1;
-                        end
-                    end
-
-                    // Cap exponents
-                    if (signed_exp >= 2047) exp_res = 11'h7FF; 
-                    else exp_res = signed_exp[10:0];
-
-                    res = {sign_res, exp_res, raw_mul_res[104:53]};
+                    stg2_signed_exp <= stg1_eff_exp_a + stg1_eff_exp_b - 1023 + 1;
+                    stg2_raw_mul_res <= stg1_m_a * stg1_m_b;
                 end
             end
-            
-            5'h17: begin // divf
-                sign_res = sign_a ^ sign_b;
-                m_a = { (exp_a != 0), a[51:0] };
-                m_b = { (exp_b != 0), b[51:0] };
-
-                if (a_is_nan || b_is_nan) begin
-                    res = {1'b0, 11'h7FF, 52'h8000000000000}; // NaN
-                end else if (a_is_inf && b_is_inf) begin
-                    res = {1'b0, 11'h7FF, 52'h8000000000000}; // Inf / Inf = NaN
-                end else if (a_is_zero && b_is_zero) begin
-                    res = {1'b0, 11'h7FF, 52'h8000000000000}; // 0 / 0 = NaN
-                end else if (a_is_inf || b_is_zero) begin
-                    res = {sign_res, 11'h7FF, 52'b0}; // Inf or X / 0 -> Inf
-                end else if (b_is_inf || a_is_zero) begin
-                    res = {sign_res, 63'b0}; // 0
+            else if (op_s1 == 5'h17) begin // Divf
+                stg2_sign_res <= stg1_sign_a ^ stg1_sign_b;
+                if (stg1_a_is_nan || stg1_b_is_nan || (stg1_a_is_inf && stg1_b_is_inf) || (stg1_a_is_zero && stg1_b_is_zero)) begin
+                    stg2_special_case <= 1; stg2_special_res <= {1'b0, 11'h7FF, 52'h8000000000000};
+                end else if (stg1_a_is_inf || stg1_b_is_zero) begin
+                    stg2_special_case <= 1; stg2_special_res <= {stg1_sign_a ^ stg1_sign_b, 11'h7FF, 52'b0};
+                end else if (stg1_b_is_inf || stg1_a_is_zero) begin
+                    stg2_special_case <= 1; stg2_special_res <= {stg1_sign_a ^ stg1_sign_b, 63'b0};
                 end else begin
-                    signed_exp = eff_exp_a - eff_exp_b + 1023;
-                    div_num = {m_a, 55'b0};
-                    raw_div_res = div_num / m_b;
-                    
-                    if (raw_div_res != 0) begin
-                        for (i = 55; i >= 0; i = i - 1) begin
-                            // Stop shifting if exponent drops to 1
-                            if (raw_div_res[55] == 0 && signed_exp > 1) begin
-                                raw_div_res = raw_div_res << 1;
-                                signed_exp = signed_exp - 1;
-                            end
-                        end
-                        
-                        // Subnormal Denormalization
-                        if (signed_exp < 1) begin
-                            shift_amt = 1 - signed_exp;
-                            if (shift_amt > 56) begin
-                                raw_div_res = 0;
-                            end else begin
-                                shift_mask = (57'd1 << shift_amt) - 1;
-                                S = |(raw_div_res & shift_mask);
-                                raw_div_res = (raw_div_res >> shift_amt) | {56'b0, S};
-                            end
-                            signed_exp = 0;
-                        end else if (raw_div_res[55] == 0) begin
-                            signed_exp = 0;
-                        end
-                    end
-
-                    // GRS rounding
-                    LSB = raw_div_res[3];
-                    G = raw_div_res[2];
-                    R = raw_div_res[1];
-                    S = |(div_num % m_b) | raw_div_res[0]; 
-                    
-                    round_up = G & (R | S | LSB);
-
-                    if (round_up) begin
-                        raw_div_res = raw_div_res + 4'b1000;
-                        if (raw_div_res[56]) begin 
-                            raw_div_res = raw_div_res >> 1;
-                            signed_exp = signed_exp + 1;
-                        end
-                    end
-
-                    if (signed_exp >= 2047) exp_res = 11'h7FF; 
-                    else exp_res = signed_exp[10:0];
-
-                    res = {sign_res, exp_res, raw_div_res[54:3]};
+                    stg2_signed_exp <= stg1_eff_exp_a - stg1_eff_exp_b + 1023;
+                    stg2_div_num <= {stg1_m_a, 55'b0};
+                    stg2_raw_div_res <= {stg1_m_a, 55'b0} / stg1_m_b;
                 end
             end
-            default: res = 64'b0;
-        endcase
+
+            // ==========================================
+            // STAGE 3: Normalize / Denormalize
+            // ==========================================
+            val_s3 <= val_s2; op_s3 <= op_s2; tag_s3 <= tag_s2; rd_s3 <= rd_s2;
+            stg3_sign_res <= stg2_sign_res;
+            stg3_special_case <= stg2_special_case;
+            stg3_special_res <= stg2_special_res;
+            stg3_m_b <= stg2_m_b;
+            stg3_div_num <= stg2_div_num;
+            
+            if (op_s2 == 5'h14 || op_s2 == 5'h15) begin // addf / subf
+                v_frac_add_res = stg2_frac_add_res;
+                v_exp_res = stg2_exp_res;
+                
+                if (v_frac_add_res != 0) begin
+                    if (v_frac_add_res[56]) begin 
+                        v_frac_add_res = (v_frac_add_res >> 1) | {56'b0, v_frac_add_res[0]};
+                        v_exp_res = v_exp_res + 1;
+                    end else begin
+                        for (i = 55; i >= 0; i = i - 1) begin
+                            if (v_frac_add_res[55] == 0 && v_exp_res > 0) begin
+                                v_frac_add_res = v_frac_add_res << 1;
+                                v_exp_res = v_exp_res - 1;
+                            end
+                        end
+                    end
+                    if (v_exp_res == 0 && v_frac_add_res[55] == 1) v_exp_res = 0; 
+                end
+                stg3_frac_add_res <= v_frac_add_res;
+                stg3_exp_res <= v_exp_res;
+            end
+            else if (op_s2 == 5'h16 && !stg2_special_case) begin // mulf
+                reg [106:0] local_raw_mul_res;
+                local_raw_mul_res = stg2_raw_mul_res;
+                v_signed_exp = stg2_signed_exp;
+                
+                if (local_raw_mul_res != 0) begin
+                    for (i = 105; i >= 0; i = i - 1) begin
+                        if (local_raw_mul_res[105] == 0 && v_signed_exp > 1) begin
+                            local_raw_mul_res = local_raw_mul_res << 1;
+                            v_signed_exp = v_signed_exp - 1;
+                        end
+                    end
+                    if (v_signed_exp < 1) begin
+                        v_shift_amt = 1 - v_signed_exp;
+                        if (v_shift_amt > 106) local_raw_mul_res = 0;
+                        else begin
+                            v_mul_shift_mask = (107'd1 << v_shift_amt) - 1;
+                            local_raw_mul_res = (local_raw_mul_res >> v_shift_amt) | {106'b0, |(local_raw_mul_res & v_mul_shift_mask)};
+                        end
+                        v_signed_exp = 0;
+                    end else if (local_raw_mul_res[105] == 0) begin
+                        v_signed_exp = 0;
+                    end
+                end
+                stg3_raw_mul_res <= local_raw_mul_res;
+                stg3_signed_exp <= v_signed_exp;
+            end
+            else if (op_s2 == 5'h17 && !stg2_special_case) begin // divf
+                reg [56:0] local_raw_div_res;
+                local_raw_div_res = stg2_raw_div_res;
+                v_signed_exp = stg2_signed_exp;
+                
+                if (local_raw_div_res != 0) begin
+                    for (i = 55; i >= 0; i = i - 1) begin
+                        if (local_raw_div_res[55] == 0 && v_signed_exp > 1) begin
+                            local_raw_div_res = local_raw_div_res << 1;
+                            v_signed_exp = v_signed_exp - 1;
+                        end
+                    end
+                    if (v_signed_exp < 1) begin
+                        v_shift_amt = 1 - v_signed_exp;
+                        if (v_shift_amt > 56) local_raw_div_res = 0;
+                        else begin
+                            v_shift_mask = (57'd1 << v_shift_amt) - 1;
+                            local_raw_div_res = (local_raw_div_res >> v_shift_amt) | {56'b0, |(local_raw_div_res & v_shift_mask)};
+                        end
+                        v_signed_exp = 0;
+                    end else if (local_raw_div_res[55] == 0) begin
+                        v_signed_exp = 0;
+                    end
+                end
+                stg3_raw_div_res <= local_raw_div_res;
+                stg3_signed_exp <= v_signed_exp;
+            end
+
+            // ==========================================
+            // STAGE 4: GRS Rounding and IEEE 754 Packing
+            // ==========================================
+            if (val_s3) begin
+                valid_out <= 1;     // Flag that we have a result for the CDB
+                tag_out <= tag_s3;  // The OoO tracking tag
+                rd_out <= rd_s3;    // The destination register
+                
+                if (stg3_special_case) begin
+                    res_out <= stg3_special_res;
+                end else begin
+                    if (op_s3 == 5'h14 || op_s3 == 5'h15) begin // addf / subf
+                        v_frac_add_res = stg3_frac_add_res;
+                        v_exp_res = stg3_exp_res;
+                        if (v_frac_add_res == 0) res_out <= 64'b0;
+                        else begin
+                            v_LSB = v_frac_add_res[3]; v_G = v_frac_add_res[2]; v_R = v_frac_add_res[1]; v_S = v_frac_add_res[0];
+                            v_round_up = v_G & (v_R | v_S | v_LSB);
+                            if (v_round_up) begin
+                                v_frac_add_res = v_frac_add_res + 4'b1000;
+                                if (v_frac_add_res[56]) begin
+                                    v_frac_add_res = v_frac_add_res >> 1; v_exp_res = v_exp_res + 1;
+                                end
+                            end
+                            res_out <= {stg3_sign_res, v_exp_res, v_frac_add_res[54:3]};
+                        end
+                    end 
+                    else if (op_s3 == 5'h16) begin // mulf
+                        reg [106:0] local_raw_mul_res;
+                        local_raw_mul_res = stg3_raw_mul_res;
+                        v_signed_exp = stg3_signed_exp;
+                        
+                        v_LSB = local_raw_mul_res[53]; v_G = local_raw_mul_res[52]; v_R = local_raw_mul_res[51]; v_S = |local_raw_mul_res[50:0];
+                        v_round_up = v_G & (v_R | v_S | v_LSB);
+                        if (v_round_up) begin
+                            local_raw_mul_res = local_raw_mul_res + (107'b1 << 53);
+                            if (local_raw_mul_res[106]) begin 
+                                local_raw_mul_res = local_raw_mul_res >> 1; v_signed_exp = v_signed_exp + 1;
+                            end
+                        end
+                        if (v_signed_exp >= 2047) v_exp_res = 11'h7FF;
+                        else v_exp_res = v_signed_exp[10:0];
+                        res_out <= {stg3_sign_res, v_exp_res, local_raw_mul_res[104:53]};
+                    end
+                    else if (op_s3 == 5'h17) begin // divf
+                        reg [56:0] local_raw_div_res;
+                        local_raw_div_res = stg3_raw_div_res;
+                        v_signed_exp = stg3_signed_exp;
+                        
+                        v_LSB = local_raw_div_res[3]; v_G = local_raw_div_res[2]; v_R = local_raw_div_res[1]; 
+                        v_S = |(stg3_div_num % stg3_m_b) | local_raw_div_res[0]; 
+                        v_round_up = v_G & (v_R | v_S | v_LSB);
+
+                        if (v_round_up) begin
+                            local_raw_div_res = local_raw_div_res + 4'b1000;
+                            if (local_raw_div_res[56]) begin 
+                                local_raw_div_res = local_raw_div_res >> 1; v_signed_exp = v_signed_exp + 1;
+                            end
+                        end
+                        if (v_signed_exp >= 2047) v_exp_res = 11'h7FF;
+                        else v_exp_res = v_signed_exp[10:0];
+                        res_out <= {stg3_sign_res, v_exp_res, local_raw_div_res[54:3]};
+                    end else begin
+                        res_out <= 64'b0;
+                    end
+                end
+            end
+        end
     end
 endmodule
