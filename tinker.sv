@@ -132,21 +132,17 @@ module tinker_core (
     wire [4:0] vj_src_B = use_rd_B ? rd_B : rs_B;
     wire [5:0] qj_A = use_rd_A ? rd_tag_A : rs_tag_A;
     // Unified Same-cycle A→B Bypass Logic (Instruction B depends on A's result)
-    wire rs_conflict_B = we_A && (rd_A == rs_B) && (rs_B != 0);
-    wire rt_conflict_B = we_A && (rd_A == rt_B) && (rt_B != 0) && !u_imm_B;
-    wire rd_conflict_B = we_A && (rd_A == rd_B) && (rd_B != 0);
-
-    // RS Effective (Operand J for most, Condition for Branch)
+    wire rs_conflict_B = we_A && (rs_B == rd_A) && (rd_A != 5'b0);
     wire rs_vld_B_eff = rs_conflict_B ? 1'b0 : rs_B_byp_vld;
     wire [63:0] rs_dat_B_eff = rs_conflict_B ? 64'b0 : rs_B_byp_dat;
     wire [5:0] rs_tag_B_eff = rs_conflict_B ? rob_tag_A : rs_tag_B;
 
-    // RT Effective (Operand K for most, Offset for load/store)
+    wire rt_conflict_B = we_A && (rt_B == rd_A) && (rd_A != 5'b0);
     wire rt_vld_B_eff = rt_conflict_B ? 1'b0 : rt_B_byp_vld;
     wire [63:0] rt_dat_B_eff = rt_conflict_B ? 64'b0 : rt_B_byp_dat;
     wire [5:0] rt_tag_B_eff = rt_conflict_B ? rob_tag_A : rt_tag_B;
 
-    // RD Effective (Operand J for some, Target for Branch, Data for Store)
+    wire rd_conflict_B = we_A && (rd_B == rd_A) && (rd_A != 5'b0);
     wire rd_vld_B_eff = rd_conflict_B ? 1'b0 : rd_B_byp_vld;
     wire [63:0] rd_dat_B_eff = rd_conflict_B ? 64'b0 : rd_B_byp_dat;
     wire [5:0] rd_tag_B_eff = rd_conflict_B ? rob_tag_A : rd_tag_B;
