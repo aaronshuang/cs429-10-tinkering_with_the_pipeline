@@ -153,11 +153,11 @@ module tinker_core (
     // ADDI/SUBI use zero-extended immediates; all others use sign-extended (matching scalar pipeline)
     wire addi_subi_A = (op_A == 5'h19 || op_A == 5'h1b);
     wire [63:0] imm_val_A = addi_subi_A ? {52'b0, imm_A} : {{52{imm_A[11]}}, imm_A};
+    wire addi_subi_B = (op_B == 5'h19 || op_B == 5'h1b);
+    wire [63:0] imm_val_B = addi_subi_B ? {52'b0, imm_B} : {{52{imm_B[11]}}, imm_B};
+
     wire vk_vld_A = u_imm_A ? 1'b1 : rt_A_byp_vld;
     wire [63:0] vk_dat_A = u_imm_A ? imm_val_A : rt_A_byp_dat;
-    
-    
-    
     reg [4:0] rs1_op, rs1_rd, rs2_op, rs2_rd, rs3_op, rs3_rd, rs4_op, rs4_rd;
     reg rs1_vj_v, rs1_vk_v, rs2_vj_v, rs2_vk_v, rs3_vj_v, rs3_vk_v, rs4_vj_v, rs4_vk_v, rs4_vl_v;
     reg [63:0] rs1_vj_d, rs1_vk_d, rs2_vj_d, rs2_vk_d, rs3_vj_d, rs3_vk_d, rs4_vj_d, rs4_vk_d, rs4_vl_d;
@@ -307,7 +307,7 @@ module tinker_core (
                                 rs4_vj_v <= br_uses_rs_A ? vj_vld_A : 1'b1; rs4_vj_d <= vj_dat_A; 
                                 
                                 rs4_vk_v <= br_uses_rt_A ? rt_A_byp_vld : 1'b1; 
-                                rs4_vk_d <= br_uses_rt_A ? rt_A_byp_dat : {{52{imm_A[11]}}, imm_A};
+                                rs4_vk_d <= br_uses_rt_A ? rt_A_byp_dat : imm_val_A;
                                 
                                 rs4_vl_v <= br_uses_rd_A ? rd_A_byp_vld : 1'b1; rs4_vl_d <= rd_A_byp_dat; 
                                 rs4_pc<=pc; rs4_pred <= pred_taken ? pred_tgt : (pc + 4); rs4_tag<=rob_tag_A;
@@ -317,7 +317,7 @@ module tinker_core (
                             if (!lsq_full) begin
                                 nxt_lsq_alloc = 1; alloc_A <= 1; issued_A = 1;
                                 alloc_tag_A_reg <= rob_tag_A; rat_rd_A_reg <= rd_A; rat_we_A_reg <= (op_A != 5'h13);
-                                lsq_is_store <= (op_A == 5'h13); lsq_imm <= {{52{imm_A[11]}}, imm_A}; lsq_rd <= rd_A;
+                                lsq_is_store <= (op_A == 5'h13); lsq_imm <= imm_val_A; lsq_rd <= rd_A;
                                 if (op_A == 5'h13) begin
                                     lsq_av_vld <= rd_A_byp_vld; lsq_av_dat <= rd_A_byp_dat; lsq_av_tag <= rd_tag_A;
                                     lsq_dv_vld <= rs_A_byp_vld; lsq_dv_dat <= rs_A_byp_dat; lsq_dv_tag <= rs_tag_A;
@@ -360,7 +360,7 @@ module tinker_core (
                                             rs4_vj_v <= br_uses_rs_B ? rs_vld_B_eff : 1'b1; rs4_vj_d <= rs_dat_B_eff;
                                             
                                             rs4_vk_v <= br_uses_rt_B ? rt_vld_B_eff : 1'b1;
-                                            rs4_vk_d <= br_uses_rt_B ? rt_dat_B_eff : {{52{imm_B[11]}}, imm_B};
+                                            rs4_vk_d <= br_uses_rt_B ? rt_dat_B_eff : imm_val_B;
                                             
                                             rs4_vl_v <= br_uses_rd_B ? rd_vld_B_eff : 1'b1; rs4_vl_d <= rd_dat_B_eff; 
                                             // Provide exact PC of instruction B to branch unit
@@ -371,7 +371,7 @@ module tinker_core (
                                         if (!lsq_full && !nxt_lsq_alloc) begin
                                             nxt_lsq_alloc = 1; alloc_B <= 1; issued_B = 1;
                                             alloc_tag_B_reg <= rob_tag_B; rat_rd_B_reg <= rd_B; rat_we_B_reg <= (op_B != 5'h13);
-                                            lsq_is_store <= (op_B == 5'h13); lsq_imm <= {{52{imm_B[11]}}, imm_B}; lsq_rd <= rd_B;
+                                            lsq_is_store <= (op_B == 5'h13); lsq_imm <= imm_val_B; lsq_rd <= rd_B;
                                             lsq_alloc_tag <= rob_tag_B;
                                             if (op_B == 5'h13) begin
                                                 lsq_av_vld <= rd_vld_B_eff; lsq_av_dat <= rd_dat_B_eff; lsq_av_tag <= rd_tag_B_eff;
@@ -389,7 +389,7 @@ module tinker_core (
                                             rs1_vj_d <= use_rd_B ? rd_dat_B_eff : rs_dat_B_eff;
                                             rs1_qj   <= (use_rd_B ? rd_vld_B_eff : rs_vld_B_eff) ? 6'b0 : (use_rd_B ? rd_tag_B_eff : rs_tag_B_eff);
                                             rs1_vk_v <= u_imm_B ? 1'b1 : rt_vld_B_eff;
-                                            rs1_vk_d <= u_imm_B ? {{52{imm_B[11]}}, imm_B} : rt_dat_B_eff;
+                                            rs1_vk_d <= u_imm_B ? imm_val_B : rt_dat_B_eff;
                                             rs1_qk   <= (u_imm_B ? 1'b1 : rt_vld_B_eff) ? 6'b0 : rt_tag_B_eff;
                                             rs1_tag<=rob_tag_B;
                                             alloc_tag_B_reg <= rob_tag_B; rat_rd_B_reg <= rd_B; rat_we_B_reg <= 1'b1;
@@ -400,7 +400,7 @@ module tinker_core (
                                             rs2_vj_d <= use_rd_B ? rd_dat_B_eff : rs_dat_B_eff;
                                             rs2_qj   <= (use_rd_B ? rd_vld_B_eff : rs_vld_B_eff) ? 6'b0 : (use_rd_B ? rd_tag_B_eff : rs_tag_B_eff);
                                             rs2_vk_v <= u_imm_B ? 1'b1 : rt_vld_B_eff;
-                                            rs2_vk_d <= u_imm_B ? {{52{imm_B[11]}}, imm_B} : rt_dat_B_eff;
+                                            rs2_vk_d <= u_imm_B ? imm_val_B : rt_dat_B_eff;
                                             rs2_qk   <= (u_imm_B ? 1'b1 : rt_vld_B_eff) ? 6'b0 : rt_tag_B_eff;
                                             rs2_tag<=rob_tag_B;
                                             alloc_tag_B_reg <= rob_tag_B; rat_rd_B_reg <= rd_B; rat_we_B_reg <= 1'b1;
@@ -413,7 +413,7 @@ module tinker_core (
                                             rs3_vj_d <= use_rd_B ? rd_dat_B_eff : rs_dat_B_eff;
                                             rs3_qj   <= (use_rd_B ? rd_vld_B_eff : rs_vld_B_eff) ? 6'b0 : (use_rd_B ? rd_tag_B_eff : rs_tag_B_eff);
                                             rs3_vk_v <= u_imm_B ? 1'b1 : rt_vld_B_eff;
-                                            rs3_vk_d <= u_imm_B ? {{52{imm_B[11]}}, imm_B} : rt_dat_B_eff;
+                                            rs3_vk_d <= u_imm_B ? imm_val_B : rt_dat_B_eff;
                                             rs3_qk   <= (u_imm_B ? 1'b1 : rt_vld_B_eff) ? 6'b0 : rt_tag_B_eff;
                                             rs3_tag<=rob_tag_B;
                                             alloc_tag_B_reg <= rob_tag_B; rat_rd_B_reg <= rd_B; rat_we_B_reg <= 1'b1;
