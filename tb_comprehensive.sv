@@ -39,42 +39,45 @@ module tb_comprehensive;
         reset = 1;
         
         // ====================================================================
-        // LOAD COMPREHENSIVE TEST PROGRAM INTO MEMORY (Starting at 0x0000)
+        // LOAD COMPREHENSIVE TEST PROGRAM INTO MEMORY (Starting at 0x2000)
         // ====================================================================
         // op=0x19 (ADDI), op=0x18 (ADD), op=0x16 (FMUL), op=0x13 (STORE), op=0x10 (LOAD), op=0x0B (BNZ)
         
         // 1. DUAL ISSUE TEST (These two should fetch and issue in Cycle 1)
-        assemble(32'h0000, 5'h19, 5'd1, 5'd0, 5'd0, 12'd10);  // ADDI R1, R0, 10
-        assemble(32'h0004, 5'h19, 5'd2, 5'd0, 5'd0, 12'd20);  // ADDI R2, R0, 20
+        assemble(32'h2000, 5'h19, 5'd1, 5'd0, 5'd0, 12'd10);  // ADDI R1, R0, 10
+        assemble(32'h2004, 5'h19, 5'd2, 5'd0, 5'd0, 12'd20);  // ADDI R2, R0, 20
         
         // 2. FORWARDING (RAW HAZARD) TEST
-        assemble(32'h0008, 5'h18, 5'd3, 5'd1, 5'd2, 12'd0);   // ADD R3, R1, R2   (R3 = 30)
+        assemble(32'h2008, 5'h18, 5'd3, 5'd1, 5'd2, 12'd0);   // ADD R3, R1, R2   (R3 = 30)
 
         // 3. OUT OF ORDER EXECUTION TEST
-        assemble(32'h000C, 5'h16, 5'd4, 5'd3, 5'd3, 12'd0);   // FMUL R4, R3, R3  (Slow FPU operation)
-        assemble(32'h0010, 5'h19, 5'd5, 5'd0, 5'd0, 12'd99);  // ADDI R5, R0, 99  (Fast ALU operation, will finish BEFORE FMUL)
+        assemble(32'h200C, 5'h16, 5'd4, 5'd3, 5'd3, 12'd0);   // FMUL R4, R3, R3  (Slow FPU operation)
+        assemble(32'h2010, 5'h19, 5'd5, 5'd0, 5'd0, 12'd99);  // ADDI R5, R0, 99  (Fast ALU operation, will finish BEFORE FMUL)
 
         // 4. LOAD/STORE QUEUE TEST
         // ISA context: STORE uses rd as base, rs as data. LOAD uses rs as base, rd as dest.
-        assemble(32'h0014, 5'h13, 5'd0, 5'd5, 5'd0, 12'd100); // STORE R5 -> [R0 + 100]
-        assemble(32'h0018, 5'h10, 5'd6, 5'd0, 5'd0, 12'd100); // LOAD  R6 <- [R0 + 100] (R6 should become 99)
+        assemble(32'h2014, 5'h13, 5'd0, 5'd5, 5'd0, 12'd100); // STORE R5 -> [R0 + 100]
+        assemble(32'h2018, 5'h10, 5'd6, 5'd0, 5'd0, 12'd100); // LOAD  R6 <- [R0 + 100] (R6 should become 99)
 
         // 5. SPECULATIVE BRANCH EXECUTION TEST
-        assemble(32'h001C, 5'h19, 5'd7, 5'd0, 5'd0, 12'h02C); // ADDI R7, R0, 0x002C (Load Branch Target Address)
-        assemble(32'h0020, 5'h0b, 5'd7, 5'd6, 5'd0, 12'd0);   // BNZ R6, target=R7  (Branch if R6!=0 to 0x002C)
+        // Build branch target 0x2034 in R7 using ADDI+SHFTLI+ADDI (12-bit imm can't hold full address)
+        assemble(32'h201C, 5'h19, 5'd7, 5'd0, 5'd0, 12'h203); // ADDI R7, R0, 0x203 -> R7 = 0x203
+        assemble(32'h2020, 5'h07, 5'd7, 5'd0, 5'd0, 12'h004); // SHFTLI R7, R0, 4   -> R7 = 0x2030
+        assemble(32'h2024, 5'h19, 5'd7, 5'd0, 5'd0, 12'h004); // ADDI R7, R0, 4     -> R7 = 0x2034
+        assemble(32'h2028, 5'h0b, 5'd7, 5'd6, 5'd0, 12'd0);   // BNZ R6, target=R7  (Branch if R6!=0 to 0x2034)
 
         // 6. THE POISON INSTRUCTION (Should be fetched speculatively, but FLUSHED)
-        assemble(32'h0024, 5'h19, 5'd8, 5'd0, 5'd0, 12'hBAD); // ADDI R8, R0, 0xBAD (Should NEVER commit to RegFile)
-        assemble(32'h0028, 5'h0f, 5'd0, 5'd0, 5'd0, 12'd0);   // HALT (In case flush fails)
+        assemble(32'h202C, 5'h19, 5'd8, 5'd0, 5'd0, 12'hBAD); // ADDI R8, R0, 0xBAD (Should NEVER commit to RegFile)
+        assemble(32'h2030, 5'h0f, 5'd0, 5'd0, 5'd0, 12'd0);   // HALT (In case flush fails)
 
         // 7. CORRECT BRANCH TARGET
-        assemble(32'h002C, 5'h19, 5'd9, 5'd0, 5'd0, 12'd42);  // ADDI R9, R0, 42 (Proof that branch succeeded)
-        assemble(32'h0030, 5'h0f, 5'd0, 5'd0, 5'd0, 12'd0);   // HALT
+        assemble(32'h2034, 5'h19, 5'd9, 5'd0, 5'd0, 12'd42);  // ADDI R9, R0, 42 (Proof that branch succeeded)
+        assemble(32'h2038, 5'h0f, 5'd0, 5'd0, 5'd0, 12'd0);   // HALT
 
         #15 reset = 0; // Release reset
 
         // Timeout Watchdog
-        #5000;
+        #10000;
         if (!hlt) begin
             $display("ERROR: Simulation timed out. Deadlock detected!");
             $finish;

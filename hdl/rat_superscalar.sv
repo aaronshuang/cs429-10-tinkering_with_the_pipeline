@@ -1,7 +1,7 @@
 module rat_superscalar (
     input clk, reset, flush,
-    input [4:0] rs_A, rt_A, rd_A, output val_rs_A, val_rt_A, val_rd_A, output [5:0] tag_rs_A, tag_rt_A, tag_rd_A, input alloc_A, input [5:0] alloc_tag_A,
-    input [4:0] rs_B, rt_B, rd_B, output val_rs_B, val_rt_B, val_rd_B, output [5:0] tag_rs_B, tag_rt_B, tag_rd_B, input alloc_B, input [5:0] alloc_tag_B,
+    input [4:0] rs_A, rt_A, rd_A, output val_rs_A, val_rt_A, val_rd_A, output [5:0] tag_rs_A, tag_rt_A, tag_rd_A, input alloc_A, input [5:0] alloc_tag_A, input [4:0] alloc_rd_A,
+    input [4:0] rs_B, rt_B, rd_B, output val_rs_B, val_rt_B, val_rd_B, output [5:0] tag_rs_B, tag_rt_B, tag_rd_B, input alloc_B, input [5:0] alloc_tag_B, input [4:0] alloc_rd_B,
     input commit_A_valid, input [5:0] commit_A_tag, input [4:0] commit_A_rd,
     input commit_B_valid, input [5:0] commit_B_tag, input [4:0] commit_B_rd
 );
@@ -21,8 +21,8 @@ module rat_superscalar (
         end else begin
             if (commit_A_valid && commit_A_rd != 0) if (!valid[commit_A_rd] && tags[commit_A_rd] == commit_A_tag) valid[commit_A_rd] <= 1'b1;
             if (commit_B_valid && commit_B_rd != 0) if (!valid[commit_B_rd] && tags[commit_B_rd] == commit_B_tag) valid[commit_B_rd] <= 1'b1;
-            if (alloc_A && rd_A != 0) begin valid[rd_A] <= 1'b0; tags[rd_A] <= alloc_tag_A; end
-            if (alloc_B && rd_B != 0) begin valid[rd_B] <= 1'b0; tags[rd_B] <= alloc_tag_B; end
+            if (alloc_A && alloc_rd_A != 0) begin valid[alloc_rd_A] <= 1'b0; tags[alloc_rd_A] <= alloc_tag_A; end
+            if (alloc_B && alloc_rd_B != 0) begin valid[alloc_rd_B] <= 1'b0; tags[alloc_rd_B] <= alloc_tag_B; end
         end
     end
 endmodule
