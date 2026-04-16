@@ -181,16 +181,7 @@ module tinker_core (
     reservation_station rs_fpu_1 (.clk(clk), .reset(reset), .flush(sys_flush), .alloc_en(fpu1_alloc), .op_in(rs3_op), .rd_in(rs3_rd), .pc_in(64'b0), .pred_tgt_in(64'b0), .rob_tag_in(rs3_tag), .val_vj(rs3_vj_v), .vj_in(rs3_vj_d), .qj_in(rs3_qj), .val_vk(rs3_vk_v), .vk_in(rs3_vk_d), .qk_in(rs3_qk), .val_vl(1'b1), .vl_in(64'b0), .ql_in(6'b0), .cdb1_valid(cdb1_valid), .cdb1_tag(cdb1_tag), .cdb1_data(cdb1_data), .cdb2_valid(cdb2_valid), .cdb2_tag(cdb2_tag), .cdb2_data(cdb2_data), .ready_to_fire(fpu1_fire), .op_out(fpu1_op), .rd_out(fpu1_rd), .pc_out(), .pred_tgt_out(), .vj_out(fpu1_vj), .vk_out(fpu1_vk), .vl_out(), .tag_out(fpu1_t), .fire_ack(fpu1_fire && fpu_ready), .busy(rs_fpu1_busy));
     reservation_station rs_branch(.clk(clk), .reset(reset), .flush(sys_flush), .alloc_en(bu_alloc),   .op_in(rs4_op), .rd_in(rs4_rd), .pc_in(rs4_pc), .pred_tgt_in(rs4_pred), .rob_tag_in(rs4_tag), .val_vj(rs4_vj_v), .vj_in(rs4_vj_d), .qj_in(rs4_qj), .val_vk(rs4_vk_v), .vk_in(rs4_vk_d), .qk_in(rs4_qk), .val_vl(rs4_vl_v), .vl_in(rs4_vl_d), .ql_in(rs4_ql), .cdb1_valid(cdb1_valid), .cdb1_tag(cdb1_tag), .cdb1_data(cdb1_data), .cdb2_valid(cdb2_valid), .cdb2_tag(cdb2_tag), .cdb2_data(cdb2_data), .ready_to_fire(bu_fire_wire),   .op_out(bu_op_out),   .rd_out(bu_rd_out),   .pc_out(bu_pc_out), .pred_tgt_out(bu_pred_out), .vj_out(bu_vj_out),   .vk_out(bu_vk_out), .vl_out(bu_vl_out),  .tag_out(bu_t_out),   .fire_ack(bu_fire_wire && bu_ready),   .busy(rs_bu_busy));
     
-    // FIX: Add 1-cycle pipeline registers for ALU 1 and 2 to break the 0-cycle combinational RS -> ALU -> CDB -> RS loop causing the timeout!
-    reg alu1_fire_reg; reg [4:0] alu1_op_reg; reg [63:0] alu1_vj_reg, alu1_vk_reg; reg [5:0] alu1_t_reg; reg [4:0] alu1_rd_reg;
-    reg alu2_fire_reg; reg [4:0] alu2_op_reg; reg [63:0] alu2_vj_reg, alu2_vk_reg; reg [5:0] alu2_t_reg; reg [4:0] alu2_rd_reg;
-    
-    always @(posedge clk) begin
-        if (reset || sys_flush) begin alu1_fire_reg <= 0; alu2_fire_reg <= 0; end 
-        else begin alu1_fire_reg <= alu1_fire; alu2_fire_reg <= alu2_fire; end
-        if (alu1_fire) begin alu1_op_reg <= alu1_op; alu1_vj_reg <= alu1_vj; alu1_vk_reg <= alu1_vk; alu1_t_reg <= alu1_t; alu1_rd_reg <= alu1_rd; end
-        if (alu2_fire) begin alu2_op_reg <= alu2_op; alu2_vj_reg <= alu2_vj; alu2_vk_reg <= alu2_vk; alu2_t_reg <= alu2_t; alu2_rd_reg <= alu2_rd; end
-    end
+    // Removed extraneous 1-cycle pipeline registers for ALU 1 and 2; ALU.sv is natively pipelined.
 
     wire [1:0] lsq_tail; wire lsq_vout; wire [5:0] lsq_tout; wire [4:0] lsq_rdout; wire [63:0] lsq_res; wire lsq_ack;
     wire lsq_mem_r, lsq_mem_w;
@@ -213,17 +204,16 @@ module tinker_core (
     wire [5:0] alu1_tout, alu2_tout, fpu_tout; wire [4:0] alu1_rdout, alu2_rdout, fpu_rdout;
     wire alu1_ack, alu2_ack, fpu_ack;
     
-    // Wire registered values to ALU
-    ALU alu_unit_1 (.clk(clk), .reset(reset), .flush(sys_flush), .valid_in(alu1_fire_reg), .op(alu1_op_reg), .a(alu1_vj_reg), .b(alu1_vk_reg), .tag_in(alu1_t_reg), .rd_in(alu1_rd_reg), .ready_in(alu1_ready), .valid_out(alu1_vout), .res_out(alu1_res), .tag_out(alu1_tout), .rd_out(alu1_rdout), .ack_out(alu1_ack));
-    ALU alu_unit_2 (.clk(clk), .reset(reset), .flush(sys_flush), .valid_in(alu2_fire_reg), .op(alu2_op_reg), .a(alu2_vj_reg), .b(alu2_vk_reg), .tag_in(alu2_t_reg), .rd_in(alu2_rd_reg), .ready_in(alu2_ready), .valid_out(alu2_vout), .res_out(alu2_res), .tag_out(alu2_tout), .rd_out(alu2_rdout), .ack_out(alu2_ack));
+    // Wire direct values to ALU (ALU contains internal 1-cycle pipeline registers)
+    ALU alu_unit_1 (.clk(clk), .reset(reset), .flush(sys_flush), .valid_in(alu1_fire), .op(alu1_op), .a(alu1_vj), .b(alu1_vk), .tag_in(alu1_t), .rd_in(alu1_rd), .ready_in(alu1_ready), .valid_out(alu1_vout), .res_out(alu1_res), .tag_out(alu1_tout), .rd_out(alu1_rdout), .ack_out(alu1_ack));
+    ALU alu_unit_2 (.clk(clk), .reset(reset), .flush(sys_flush), .valid_in(alu2_fire), .op(alu2_op), .a(alu2_vj), .b(alu2_vk), .tag_in(alu2_t), .rd_in(alu2_rd), .ready_in(alu2_ready), .valid_out(alu2_vout), .res_out(alu2_res), .tag_out(alu2_tout), .rd_out(alu2_rdout), .ack_out(alu2_ack));
     FPU fpu        (.clk(clk), .reset(reset), .flush(sys_flush), .valid_in(fpu1_fire), .op(fpu1_op), .a(fpu1_vj), .b(fpu1_vk), .tag_in(fpu1_t), .rd_in(fpu1_rd), .ready_in(fpu_ready), .valid_out(fpu_vout), .res_out(fpu_res), .tag_out(fpu_tout), .rd_out(fpu_rdout), .ack_out(fpu_ack));
     
     wire [5:0] bu_tout_w; wire [4:0] bu_rdout_w; wire [63:0] bu_res_w;
     wire bu_ack;
     branch_unit branch_exec (.clk(clk), .reset(reset), .flush(sys_flush), .valid_in(bu_fire_wire), .op(bu_op_out), .pc(bu_pc_out), .predicted_target(bu_pred_out), .a_val(bu_vj_out), .b_val(bu_vk_out), .c_val(bu_vl_out), .imm(bu_vk_out), .tag_in(bu_t_out), .rd_in(bu_rd_out), .ready_in(bu_ready), .valid_out(bu_valid), .mispredicted(bu_mispredicted), .correct_target(bu_target), .actual_taken(bu_taken), .branch_pc(bu_pc), .res_out(bu_res_w), .tag_out(bu_tag), .rd_out(bu_rdout_w), .ack_out(bu_ack));
     
-    wire [63:0] alu1_res_final = (alu1_op_reg == 5'h12) ? {alu1_vj_reg[63:12], alu1_vk_reg[11:0]} : alu1_res;
-    wire [63:0] alu2_res_final = (alu2_op_reg == 5'h12) ? {alu2_vj_reg[63:12], alu2_vk_reg[11:0]} : alu2_res;
+    // Removed redundant LUI multiplexer here; ALU natively handles 5'h12
 
     wire sel1_lsq = lsq_vout; wire sel1_bu  = !sel1_lsq & bu_valid;
     wire sel1_a1  = !sel1_lsq & !sel1_bu & alu1_vout; wire sel1_a2  = !sel1_lsq & !sel1_bu & !sel1_a1 & alu2_vout;
@@ -232,7 +222,7 @@ module tinker_core (
     assign cdb1_valid = sel1_lsq | sel1_bu | sel1_a1 | sel1_a2 | sel1_fpu;
     assign cdb1_tag   = cdb1_valid ? (sel1_lsq ? lsq_tout  : (sel1_bu ? bu_tag  : (sel1_a1 ? alu1_tout  : (sel1_a2 ? alu2_tout  : fpu_tout)))) : 6'b0;
     assign cdb1_rd    = cdb1_valid ? (sel1_lsq ? lsq_rdout : (sel1_bu ? bu_rdout_w : (sel1_a1 ? alu1_rdout : (sel1_a2 ? alu2_rdout : fpu_rdout)))) : 5'b0;
-    assign cdb1_data  = cdb1_valid ? (sel1_lsq ? lsq_res   : (sel1_bu ? bu_res_w   : (sel1_a1 ? alu1_res_final   : (sel1_a2 ? alu2_res_final   : fpu_res)))) : 64'b0;
+    assign cdb1_data  = cdb1_valid ? (sel1_lsq ? lsq_res   : (sel1_bu ? bu_res_w   : (sel1_a1 ? alu1_res   : (sel1_a2 ? alu2_res   : fpu_res)))) : 64'b0;
     
     wire in2_lsq  = lsq_vout & ~sel1_lsq; wire in2_bu  = bu_valid & ~sel1_bu;
     wire in2_a1  = alu1_vout & ~sel1_a1; wire in2_a2  = alu2_vout & ~sel1_a2; wire in2_fpu = fpu_vout & ~sel1_fpu;
@@ -244,7 +234,7 @@ module tinker_core (
     assign cdb2_valid = sel2_lsq | sel2_bu | sel2_a1 | sel2_a2 | sel2_fpu;
     assign cdb2_tag   = cdb2_valid ? (sel2_lsq ? lsq_tout  : (sel2_bu ? bu_tag  : (sel2_a1 ? alu1_tout  : (sel2_a2 ? alu2_tout  : fpu_tout)))) : 6'b0;
     assign cdb2_rd    = cdb2_valid ? (sel2_lsq ? lsq_rdout : (sel2_bu ? bu_rdout_w : (sel2_a1 ? alu1_rdout : (sel2_a2 ? alu2_rdout : fpu_rdout)))) : 5'b0;
-    assign cdb2_data  = cdb2_valid ? (sel2_lsq ? lsq_res   : (sel2_bu ? bu_res_w   : (sel2_a1 ? alu1_res_final   : (sel2_a2 ? alu2_res_final   : fpu_res)))) : 64'b0;
+    assign cdb2_data  = cdb2_valid ? (sel2_lsq ? lsq_res   : (sel2_bu ? bu_res_w   : (sel2_a1 ? alu1_res   : (sel2_a2 ? alu2_res   : fpu_res)))) : 64'b0;
     
     assign lsq_ack  = sel1_lsq | sel2_lsq; assign bu_ack   = sel1_bu | sel2_bu; assign alu1_ack = sel1_a1 | sel2_a1;
     assign alu2_ack = sel1_a2 | sel2_a2; assign fpu_ack  = sel1_fpu | sel2_fpu;

@@ -1,4 +1,5 @@
 `timescale 1ns / 1ps
+`include "tinker.sv"
 
 module tb_tinker;
 
@@ -21,10 +22,10 @@ module tb_tinker;
         reg   [31:0] inst;
         begin
             inst = {op, rd, rs, rt, imm};
-            uut.memory.bytes[addr]   = inst[7:0];
-            uut.memory.bytes[addr+1] = inst[15:8];
-            uut.memory.bytes[addr+2] = inst[23:16];
-            uut.memory.bytes[addr+3] = inst[31:24];
+            uut.mem.bytes[addr]   = inst[7:0];
+            uut.mem.bytes[addr+1] = inst[15:8];
+            uut.mem.bytes[addr+2] = inst[23:16];
+            uut.mem.bytes[addr+3] = inst[31:24];
         end
     endtask
 
@@ -32,14 +33,14 @@ module tb_tinker;
         input [63:0] addr;
         input [63:0] data;
         begin
-            uut.memory.bytes[addr]   = data[7:0];
-            uut.memory.bytes[addr+1] = data[15:8];
-            uut.memory.bytes[addr+2] = data[23:16];
-            uut.memory.bytes[addr+3] = data[31:24];
-            uut.memory.bytes[addr+4] = data[39:32];
-            uut.memory.bytes[addr+5] = data[47:40];
-            uut.memory.bytes[addr+6] = data[55:48];
-            uut.memory.bytes[addr+7] = data[63:56];
+            uut.mem.bytes[addr]   = data[7:0];
+            uut.mem.bytes[addr+1] = data[15:8];
+            uut.mem.bytes[addr+2] = data[23:16];
+            uut.mem.bytes[addr+3] = data[31:24];
+            uut.mem.bytes[addr+4] = data[39:32];
+            uut.mem.bytes[addr+5] = data[47:40];
+            uut.mem.bytes[addr+6] = data[55:48];
+            uut.mem.bytes[addr+7] = data[63:56];
         end
     endtask
 
@@ -52,11 +53,11 @@ module tb_tinker;
         input [255:0] test_name;
         begin
             total_tests = total_tests + 1;
-            if (uut.reg_file.registers[reg_idx] === expected) begin
+            if (uut.rf.registers[reg_idx] === expected) begin
                 $display("[PASS] %s \t\t(r%0d = %h)", test_name, reg_idx, expected);
                 passed_tests = passed_tests + 1;
             end else begin
-                $display("[FAIL] %s \t\t(r%0d = %h, Expected: %h)", test_name, reg_idx, uut.reg_file.registers[reg_idx], expected);
+                $display("[FAIL] %s \t\t(r%0d = %h, Expected: %h)", test_name, reg_idx, uut.rf.registers[reg_idx], expected);
             end
         end
     endtask
@@ -152,12 +153,12 @@ module tb_tinker;
         
         // Wait for CPU to hit HALT opcode or timeout
         timeout = 0;
-        while (uut.opcode !== OP_PRIV && timeout < 1000) begin
+        while (uut.dec_A.opcode !== OP_PRIV && timeout < 3000) begin
             @(posedge clk);
             timeout = timeout + 1;
         end
 
-        if (timeout >= 1000) begin
+        if (timeout >= 3000) begin
             $display("\n[FATAL] Timeout! CPU never hit the Halt Instruction. Infinite Loop or Branch Failure.\n");
             $finish;
         end

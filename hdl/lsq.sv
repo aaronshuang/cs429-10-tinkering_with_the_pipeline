@@ -51,8 +51,15 @@ module lsq #(parameter DEPTH = 4) (
             if (push) begin
                 valid[tail] <= 1;
                 is_st[tail] <= is_store; rd[tail] <= dest_rd; offset[tail] <= imm;
-                a_vld[tail] <= addr_vld; a_val[tail] <= addr_val; a_tag[tail] <= addr_tag;
-                d_vld[tail] <= data_vld; d_val[tail] <= data_val; d_tag[tail] <= data_tag; tag[tail] <= alloc_tag;
+                tag[tail] <= alloc_tag;
+
+                if (!addr_vld && cdb1_valid && addr_tag == cdb1_tag) begin a_val[tail] <= cdb1_data; a_vld[tail] <= 1; end
+                else if (!addr_vld && cdb2_valid && addr_tag == cdb2_tag) begin a_val[tail] <= cdb2_data; a_vld[tail] <= 1; end
+                else begin a_vld[tail] <= addr_vld; a_val[tail] <= addr_val; a_tag[tail] <= addr_tag; end
+
+                if (!data_vld && cdb1_valid && data_tag == cdb1_tag) begin d_val[tail] <= cdb1_data; d_vld[tail] <= 1; end
+                else if (!data_vld && cdb2_valid && data_tag == cdb2_tag) begin d_val[tail] <= cdb2_data; d_vld[tail] <= 1; end
+                else begin d_vld[tail] <= data_vld; d_val[tail] <= data_val; d_tag[tail] <= data_tag; end
             end
             
             if (pop) valid[head] <= 0;
