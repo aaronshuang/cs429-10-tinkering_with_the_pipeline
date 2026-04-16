@@ -8,8 +8,8 @@ module register_file (
     input [4:0] rd_A, rs_A, rt_A,
     output [63:0] rd_val_A, rs_val_A, rt_val_A,
     // Instruction B Read Ports
-    input [4:0] rs_B, rt_B,
-    output [63:0] rs_val_B, rt_val_B,
+    input [4:0] rd_B, rs_B, rt_B,
+    output [63:0] rd_val_B, rs_val_B, rt_val_B,
     // System Port
     output [63:0] r31_val
 );
@@ -17,6 +17,7 @@ module register_file (
     assign rd_val_A = registers[rd_A];
     assign rs_val_A = registers[rs_A];
     assign rt_val_A = registers[rt_A];
+    assign rd_val_B = registers[rd_B];
     assign rs_val_B = registers[rs_B];
     assign rt_val_B = registers[rt_B];
     assign r31_val  = registers[31];

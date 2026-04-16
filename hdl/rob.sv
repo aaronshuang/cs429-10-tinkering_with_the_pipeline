@@ -14,7 +14,11 @@ module reorder_buffer #(parameter DEPTH = 64) (
     output reg bp_update_en, output reg [63:0] bp_update_pc, output reg bp_actual_taken, output reg [63:0] bp_actual_target,
     
     output reg commit_A_valid, output reg [4:0] commit_A_rd, output reg [63:0] commit_A_data, output reg [5:0] commit_A_tag,
-    output reg commit_B_valid, output reg [4:0] commit_B_rd, output reg [63:0] commit_B_data, output reg [5:0] commit_B_tag
+    output reg commit_B_valid, output reg [4:0] commit_B_rd, output reg [63:0] commit_B_data, output reg [5:0] commit_B_tag,
+    
+    input [5:0] rtag_1, input [5:0] rtag_2, input [5:0] rtag_3, input [5:0] rtag_4, input [5:0] rtag_5, input [5:0] rtag_6,
+    output wire rrdy_1, output wire rrdy_2, output wire rrdy_3, output wire rrdy_4, output wire rrdy_5, output wire rrdy_6,
+    output wire [63:0] rval_1, output wire [63:0] rval_2, output wire [63:0] rval_3, output wire [63:0] rval_4, output wire [63:0] rval_5, output wire [63:0] rval_6
 );
     reg valid [0:DEPTH-1]; reg ready [0:DEPTH-1]; reg [4:0] dest_reg [0:DEPTH-1]; reg [63:0] value [0:DEPTH-1];
     reg mispredict_array [0:DEPTH-1]; reg [63:0] target_array [0:DEPTH-1];
@@ -23,6 +27,13 @@ module reorder_buffer #(parameter DEPTH = 64) (
     reg [5:0] head, tail; reg [6:0] count;
     assign full = (count >= DEPTH - 2); assign empty = (count == 0);
     assign tag_A = tail; assign tag_B = (tail + 1) % DEPTH;
+
+    assign rrdy_1 = valid[rtag_1] && ready[rtag_1]; assign rval_1 = value[rtag_1];
+    assign rrdy_2 = valid[rtag_2] && ready[rtag_2]; assign rval_2 = value[rtag_2];
+    assign rrdy_3 = valid[rtag_3] && ready[rtag_3]; assign rval_3 = value[rtag_3];
+    assign rrdy_4 = valid[rtag_4] && ready[rtag_4]; assign rval_4 = value[rtag_4];
+    assign rrdy_5 = valid[rtag_5] && ready[rtag_5]; assign rval_5 = value[rtag_5];
+    assign rrdy_6 = valid[rtag_6] && ready[rtag_6]; assign rval_6 = value[rtag_6];
 
     reg pop_A, pop_B, push_A, push_B; integer i;
 
@@ -71,12 +82,14 @@ module reorder_buffer #(parameter DEPTH = 64) (
             if (cdb1_valid && valid[cdb1_tag]) begin ready[cdb1_tag] <= 1; value[cdb1_tag] <= cdb1_data; end
             if (cdb2_valid && valid[cdb2_tag]) begin ready[cdb2_tag] <= 1; value[cdb2_tag] <= cdb2_data; end
             
-            if (alloc_A && !full) begin valid[tail] <= 1; ready[tail] <= 0; dest_reg[tail] <= rd_A; is_br_array[tail] <= 0; mispredict_array[tail] <= 0; push_A = 1; end
-            if (alloc_B && !full) begin valid[(tail+push_A)%DEPTH] <= 1; ready[(tail+push_A)%DEPTH] <= 0; dest_reg[(tail+push_A)%DEPTH] <= rd_B; is_br_array[(tail+push_A)%DEPTH] <= 0; mispredict_array[(tail+push_A)%DEPTH] <= 0; push_B = 1; end
-            
-            head <= (head + pop_A + pop_B) % DEPTH;
-            tail <= (tail + push_A + push_B) % DEPTH;
-            count <= count + push_A + push_B - pop_A - pop_B;
+            if (!(count > 0 && ready[head] && mispredict_array[head])) begin
+                if (alloc_A && !full) begin valid[tail] <= 1; ready[tail] <= 0; dest_reg[tail] <= rd_A; is_br_array[tail] <= 0; mispredict_array[tail] <= 0; push_A = 1; end
+                if (alloc_B && !full) begin valid[(tail+push_A)%DEPTH] <= 1; ready[(tail+push_A)%DEPTH] <= 0; dest_reg[(tail+push_A)%DEPTH] <= rd_B; is_br_array[(tail+push_A)%DEPTH] <= 0; mispredict_array[(tail+push_A)%DEPTH] <= 0; push_B = 1; end
+                
+                head <= (head + pop_A + pop_B) % DEPTH;
+                tail <= (tail + push_A + push_B) % DEPTH;
+                count <= count + push_A + push_B - pop_A - pop_B;
+            end
         end
     end
 endmodule

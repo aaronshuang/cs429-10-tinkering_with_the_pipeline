@@ -31,9 +31,7 @@ module lsq #(parameter DEPTH = 4) (
     assign mem_write = head_ready && head_is_st && !waiting_cdb;
     
     wire push = alloc_en && !full;
-    wire pop_store = head_ready && !waiting_cdb && head_is_st;
-    wire pop_load = waiting_cdb && cdb_ack;
-    wire pop = pop_store || pop_load;
+    wire pop = waiting_cdb && cdb_ack;
 
     integer i;
     always @(posedge clk) begin
@@ -78,7 +76,7 @@ module lsq #(parameter DEPTH = 4) (
                 read_pending <= 0;
                 cdb_valid <= 1; cdb_data <= mem_rdata; cdb_tag <= tag[head]; cdb_rd <= rd[head];
                 waiting_cdb <= 1; 
-            end else if (pop_store) begin
+            end else if (head_ready && !waiting_cdb && head_is_st) begin
                 cdb_valid <= 1; cdb_data <= 64'b0; cdb_tag <= tag[head]; cdb_rd <= 5'b0;
                 waiting_cdb <= 1; 
             end
