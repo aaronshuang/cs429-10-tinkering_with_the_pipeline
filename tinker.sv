@@ -115,18 +115,13 @@ module tinker_core (
     wire [63:0] vj_dat_B = use_rd_B ? rd_B_byp_dat : rs_B_byp_dat;
     wire [5:0] qj_B = use_rd_B ? rd_tag_B : rs_tag_B;
 
-    // FIX: Force immediate flag true for Shift Immediate ops (0x1a and 0x1b)
-    wire force_imm_A = u_imm_A | (op_A == 5'h1a) | (op_A == 5'h1b);
-    wire zext_A = (op_A == 5'h19 || op_A == 5'h1b);
-    wire [63:0] imm_val_A = zext_A ? {52'b0, imm_A} : {{52{imm_A[11]}}, imm_A};
-    wire vk_vld_A = force_imm_A ? 1'b1 : rt_A_byp_vld;
-    wire [63:0] vk_dat_A = force_imm_A ? imm_val_A : rt_A_byp_dat;
+    wire [63:0] imm_val_A = {{52{imm_A[11]}}, imm_A};
+    wire vk_vld_A = u_imm_A ? 1'b1 : rt_A_byp_vld;
+    wire [63:0] vk_dat_A = u_imm_A ? imm_val_A : rt_A_byp_dat;
     
-    wire force_imm_B = u_imm_B | (op_B == 5'h1a) | (op_B == 5'h1b);
-    wire zext_B = (op_B == 5'h19 || op_B == 5'h1b);
-    wire [63:0] imm_val_B = zext_B ? {52'b0, imm_B} : {{52{imm_B[11]}}, imm_B};
-    wire vk_vld_B = force_imm_B ? 1'b1 : rt_B_byp_vld;
-    wire [63:0] vk_dat_B = force_imm_B ? imm_val_B : rt_B_byp_dat;
+    wire [63:0] imm_val_B = {{52{imm_B[11]}}, imm_B};
+    wire vk_vld_B = u_imm_B ? 1'b1 : rt_B_byp_vld;
+    wire [63:0] vk_dat_B = u_imm_B ? imm_val_B : rt_B_byp_dat;
     
     reg [4:0] rs1_op, rs1_rd, rs2_op, rs2_rd, rs3_op, rs3_rd, rs4_op, rs4_rd;
     reg rs1_vj_v, rs1_vk_v, rs2_vj_v, rs2_vk_v, rs3_vj_v, rs3_vk_v, rs4_vj_v, rs4_vk_v, rs4_vl_v;
@@ -176,9 +171,7 @@ module tinker_core (
 
     memory memory (.clk(clk), .addr(m_addr), .write_data(m_wdata), .mem_write(mem_w), .mem_read(mem_r), .read_data(m_rdata));
 
-    // FIX: Provide combinational bypass of memory output to the LSQ to prevent reading cycle-late 0s during loads
-    wire [63:0] comb_m_rdata = {memory.bytes[lsq_mem_addr+7], memory.bytes[lsq_mem_addr+6], memory.bytes[lsq_mem_addr+5], memory.bytes[lsq_mem_addr+4], memory.bytes[lsq_mem_addr+3], memory.bytes[lsq_mem_addr+2], memory.bytes[lsq_mem_addr+1], memory.bytes[lsq_mem_addr]};
-    lsq #(4) lsq_unit (.clk(clk), .reset(reset), .flush(sys_flush), .alloc_en(lsq_alloc), .is_store(lsq_is_store), .dest_rd(lsq_rd), .imm(lsq_imm), .addr_vld(lsq_av_vld), .addr_val(lsq_av_dat), .addr_tag(lsq_av_tag), .data_vld(lsq_dv_vld), .data_val(lsq_dv_dat), .data_tag(lsq_dv_tag), .alloc_tag(lsq_alloc_tag), .full(lsq_full), .current_tail(lsq_tail), .cdb1_valid(cdb1_valid), .cdb1_tag(cdb1_tag), .cdb1_data(cdb1_data), .cdb2_valid(cdb2_valid), .cdb2_tag(cdb2_tag), .cdb2_data(cdb2_data), .mem_read(lsq_mem_r), .mem_write(lsq_mem_w), .mem_addr(lsq_mem_addr), .mem_wdata(lsq_mem_wdata), .mem_rdata(comb_m_rdata), .cdb_valid(lsq_vout), .cdb_tag(lsq_tout), .cdb_rd(lsq_rdout), .cdb_data(lsq_res), .cdb_ack(lsq_ack));
+    lsq #(4) lsq_unit (.clk(clk), .reset(reset), .flush(sys_flush), .alloc_en(lsq_alloc), .is_store(lsq_is_store), .dest_rd(lsq_rd), .imm(lsq_imm), .addr_vld(lsq_av_vld), .addr_val(lsq_av_dat), .addr_tag(lsq_av_tag), .data_vld(lsq_dv_vld), .data_val(lsq_dv_dat), .data_tag(lsq_dv_tag), .alloc_tag(lsq_alloc_tag), .full(lsq_full), .current_tail(lsq_tail), .cdb1_valid(cdb1_valid), .cdb1_tag(cdb1_tag), .cdb1_data(cdb1_data), .cdb2_valid(cdb2_valid), .cdb2_tag(cdb2_tag), .cdb2_data(cdb2_data), .mem_read(lsq_mem_r), .mem_write(lsq_mem_w), .mem_addr(lsq_mem_addr), .mem_wdata(lsq_mem_wdata), .mem_rdata(m_rdata), .cdb_valid(lsq_vout), .cdb_tag(lsq_tout), .cdb_rd(lsq_rdout), .cdb_data(lsq_res), .cdb_ack(lsq_ack));
     
     wire alu1_vout, alu2_vout, fpu_vout;
     wire [63:0] alu1_res, alu2_res, fpu_res;
@@ -278,8 +271,8 @@ module tinker_core (
                                 rs4_vk_d <= br_uses_rt_A ? rt_A_byp_dat : {{52{imm_A[11]}}, imm_A};
                                 
                                 rs4_vl_v <= br_uses_rd_A ? rd_A_byp_vld : 1'b1; rs4_vl_d <= rd_A_byp_dat; 
-                                // FIX: Provide pc + 4 exactly to offset out the `(pc - 4)` inside branch_unit
-                                rs4_pc<=pc+4; rs4_pred <= pred_taken ? pred_tgt : (pc + 4); rs4_tag<=rob_tag_A;
+                                // Provide exact PC of instruction A to branch unit
+                                rs4_pc<=pc; rs4_pred <= pred_taken ? pred_tgt : (pc + 4); rs4_tag<=rob_tag_A;
                             end
                         end else if (is_mem_A) begin
                             if (!lsq_full) begin
@@ -329,7 +322,8 @@ module tinker_core (
                                         
                                         rs4_vl_v <= br_uses_rd_B ? rd_B_byp_vld : 1'b1; rs4_vl_d <= rd_B_byp_dat; 
                                         // FIX: Provide pc + 8 for Issue B correctly offset
-                                        rs4_pc<=pc+8; rs4_pred <= (pc+8); rs4_tag<=rob_tag_B;
+                                        // Provide exact PC of instruction B to branch unit
+                                        rs4_pc<=pc+4; rs4_pred <= (pc+8); rs4_tag<=rob_tag_B;
                                     end
                                 end else if (!u_fpu_B) begin
                                     if (!rs_alu1_busy && !nxt_alu1_alloc) begin 
@@ -363,8 +357,7 @@ module tinker_core (
                 EXEC_MEM: begin
                     if (op_A == 5'h0d) state <= EXEC_MEM_WAIT;
                     else begin
-                        // FIX: Opcode 0x0c is Return, which restores PC from r31_val (link register)
-                        if (op_A == 5'h0c) pc <= r31_val;
+                        if (op_A == 5'h0c) pc <= rd_val_A;
                         else pc <= pc + 4;
                         state <= FETCH;
                     end

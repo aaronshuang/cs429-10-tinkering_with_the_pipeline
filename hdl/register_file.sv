@@ -28,8 +28,8 @@ module register_file (
             for (i = 0; i < 31; i = i + 1) registers[i] <= 64'b0;
             registers[31] <= 64'd524288;
         end else begin
-            if (write_enable_1 && rd_w1 != 0) registers[rd_w1] <= data_1;
-            if (write_enable_2 && rd_w2 != 0) registers[rd_w2] <= data_2;
+            if (write_enable_1) registers[rd_w1] <= data_1;
+            if (write_enable_2) registers[rd_w2] <= data_2;
         end
     end
 endmodule

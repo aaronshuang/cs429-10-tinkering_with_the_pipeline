@@ -1,0 +1,2 @@
+read_verilog -sv hdl/*.sv tinker.sv
+synth -top tinker_core
